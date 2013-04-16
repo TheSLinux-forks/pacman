@@ -2733,6 +2733,11 @@ unset pkgname pkgbase pkgver pkgrel epoch pkgdesc url license groups provides
 unset md5sums replaces depends conflicts backup source install changelog build
 unset makedepends optdepends options noextract
 
+pkgname="${PACKAGE_NAME:-}"
+pkgver="${PACKAGE_VERSION:-}"
+pkgrel="${PACKAGE_RELEASE:-}"
+pkgbase="${PACKAGE_BASE:-}"
+
 BUILDFILE=${BUILDFILE:-$BUILDSCRIPT}
 if [[ ! -f $BUILDFILE ]]; then
 	if [[ -t 0 ]]; then

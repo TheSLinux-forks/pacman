@@ -2738,6 +2738,10 @@ pkgver="${PACKAGE_VERSION:-}"
 pkgrel="${PACKAGE_RELEASE:-}"
 pkgbase="${PACKAGE_BASE:-}"
 
+if [[ -n "${PACKAGE_SHA512SUMS}" ]]; then
+	sha512sums=("${PACKAGE_SHA512SUMS[@]}")
+fi
+
 BUILDFILE=${BUILDFILE:-$BUILDSCRIPT}
 if [[ ! -f $BUILDFILE ]]; then
 	if [[ -t 0 ]]; then

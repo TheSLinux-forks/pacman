@@ -2733,7 +2733,6 @@ unset pkgname pkgbase pkgver pkgrel epoch pkgdesc url license groups provides
 unset md5sums replaces depends conflicts backup source install changelog build
 unset makedepends optdepends options noextract
 
-pkgname="${PACKAGE_NAME:-}"
 pkgver="${PACKAGE_VERSION:-}"
 pkgrel="${PACKAGE_RELEASE:-}"
 pkgbase="${PACKAGE_BASE:-}"
@@ -2765,6 +2764,17 @@ else
 	source_safe "$BUILDFILE"
 fi
 
+# There are some cases
+#   PACKAGE_BASE is unset:
+#     `pkgname`, `pkgbase` will be from `PKGBUILD`
+#
+#   PACKAGE_BASE is set:
+#     `pkgbase` is defined
+#     `pkgname` will be `pkgbase` if `pkgname` is unset
+#
+if [[ -z "$pkgname" ]]; then
+	pkgname="$pkgbase"
+fi
 # set defaults if they weren't specified in buildfile
 pkgbase=${pkgbase:-${pkgname[0]}}
 epoch=${epoch:-0}

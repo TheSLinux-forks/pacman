@@ -1857,7 +1857,7 @@ create_package() {
 	fi
 
 	cd_safe "$pkgdir"
-	msg "$(gettext "Creating package \"%s\"...")" "$pkgname"
+	msg "$(gettext "Creating package \"%s\"...")" "$pkgname${PACKAGE_FEATURE}"
 
 	pkgarch=$(get_pkg_arch)
 
@@ -1953,7 +1953,7 @@ create_debug_package() {
 	fi
 
 	depends=("$pkgname=$(get_full_version)")
-	pkgdesc="Detached debugging symbols for $pkgname"
+	pkgdesc="Detached debugging symbols for $pkgname${PACKAGE_FEATURE}"
 	pkgname=$pkgname-@DEBUGSUFFIX@
 
 	unset groups optdepends provides conflicts replaces backup install changelog
@@ -2060,7 +2060,7 @@ install_package() {
 	(( ! INSTALL )) && return
 
 	if (( ! SPLITPKG )); then
-		msg "$(gettext "Installing package %s with %s...")" "$pkgname" "$PACMAN -U"
+		msg "$(gettext "Installing package %s with %s...")" "$pkgname${PACKAGE_FEATURE}" "$PACMAN -U"
 	else
 		msg "$(gettext "Installing %s package group with %s...")" "$pkgbase" "$PACMAN -U"
 	fi
@@ -2098,9 +2098,10 @@ check_sanity() {
 
 	for i in "${pkgname[@]}"; do
 		if [[ ${i:0:1} = "-" ]]; then
-			error "$(gettext "%s is not allowed to start with a hyphen.")" "pkgname"
+			error "$(gettext "%s is not allowed to start with a hyphen.")" "pkgname${PACKAGE_FEATURE}"
 			ret=1
 		fi
+		# FIXME: Possibly has problem with PACKAGE_FEATURE
 		if [[ $i = *[^[:alnum:]+_.@-]* ]]; then
 			error "$(gettext "%s contains invalid characters: '%s'")" \
 					'pkgname' "${pkgname//[[:alnum:]+_.@-]}"

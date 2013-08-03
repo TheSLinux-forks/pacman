@@ -93,7 +93,7 @@ PACMAN_OPTS=
 
 # Return the feature string to used in filename
 if [[ -n "$PACKAGE_FEATURE" ]]; then
-	_FEATURE_STRING="-$PACKAGE_FEATURE"
+	_FEATURE_STRING="@$PACKAGE_FEATURE"
 else
 	_FEATURE_STRING=""
 fi

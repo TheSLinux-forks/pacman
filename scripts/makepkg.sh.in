@@ -1818,6 +1818,7 @@ write_pkginfo() {
 
 	if [[ "$PACKAGE_CONFLICT_TYPE" == "@" ]]; then
 		conflicts=("${conflicts[@]}" "$pkgname")
+		provides=("${provides[@]}" "$pkgname")
 	fi
 
 	[[ $license ]]      && printf "license = %s\n"     "${license[@]}"

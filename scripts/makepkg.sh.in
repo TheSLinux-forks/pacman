@@ -1818,8 +1818,6 @@ write_pkginfo() {
 
 	if [[ -n "$PACKAGE_FEATURE" ]]; then
 		conflicts=("${conflicts[@]}" "$pkgname")
-		provides=("${provides[@]}" "$pkgname")
-		replaces=("${replaces[@]}" "$pkgname")
 	fi
 
 	[[ $license ]]      && printf "license = %s\n"     "${license[@]}"

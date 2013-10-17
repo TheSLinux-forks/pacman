@@ -93,7 +93,7 @@ PACMAN_OPTS=
 
 # Return the feature string to used in filename
 if [[ -n "$PACKAGE_FEATURE" ]]; then
-	_FEATURE_STRING="@$PACKAGE_FEATURE"
+	_FEATURE_STRING="${PACKAGE_CONFLICT_TYPE}$PACKAGE_FEATURE"
 else
 	_FEATURE_STRING=""
 fi
@@ -1816,7 +1816,7 @@ write_pkginfo() {
 	mapfile -t provides < <(find_libprovides)
 	mapfile -t depends < <(find_libdepends)
 
-	if [[ -n "$PACKAGE_FEATURE" ]]; then
+	if [[ "$PACKAGE_CONFLICT_TYPE" == "@" ]]; then
 		conflicts=("${conflicts[@]}" "$pkgname")
 	fi
 
@@ -1855,7 +1855,7 @@ create_package() {
 	fi
 
 	cd_safe "$pkgdir"
-	msg "$(gettext "Creating package \"%s\"...")" "$pkgname${PACKAGE_FEATURE}"
+	msg "$(gettext "Creating package \"%s\"...")" "$pkgname${_FEATURE_STRING}"
 
 	pkgarch=$(get_pkg_arch)
 
@@ -1951,7 +1951,7 @@ create_debug_package() {
 	fi
 
 	depends=("$pkgname=$(get_full_version)")
-	pkgdesc="Detached debugging symbols for $pkgname${PACKAGE_FEATURE}"
+	pkgdesc="Detached debugging symbols for $pkgname${_FEATURE_STRING}"
 	pkgname=$pkgname-@DEBUGSUFFIX@
 
 	unset groups optdepends provides conflicts replaces backup install changelog
@@ -2058,7 +2058,7 @@ install_package() {
 	(( ! INSTALL )) && return
 
 	if (( ! SPLITPKG )); then
-		msg "$(gettext "Installing package %s with %s...")" "$pkgname${PACKAGE_FEATURE}" "$PACMAN -U"
+		msg "$(gettext "Installing package %s with %s...")" "$pkgname${_FEATURE_STRING}" "$PACMAN -U"
 	else
 		msg "$(gettext "Installing %s package group with %s...")" "$pkgbase" "$PACMAN -U"
 	fi
@@ -2096,10 +2096,10 @@ check_sanity() {
 
 	for i in "${pkgname[@]}"; do
 		if [[ ${i:0:1} = "-" ]]; then
-			error "$(gettext "%s is not allowed to start with a hyphen.")" "pkgname${PACKAGE_FEATURE}"
+			error "$(gettext "%s is not allowed to start with a hyphen.")" "pkgname${_FEATURE_STRING}"
 			ret=1
 		fi
-		# FIXME: Possibly has problem with PACKAGE_FEATURE
+		# FIXME: Possibly has problem with _FEATURE_STRING
 		if [[ $i = *[^[:alnum:]+_.@-]* ]]; then
 			error "$(gettext "%s contains invalid characters: '%s'")" \
 					'pkgname' "${pkgname//[[:alnum:]+_.@-]}"

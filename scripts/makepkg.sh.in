@@ -91,11 +91,10 @@ FORCE_VER=""
 
 PACMAN_OPTS=
 
-# Return the feature string to used in filename
-if [[ -n "$PACKAGE_FEATURE" ]]; then
-	_FEATURE_STRING="${PACKAGE_CONFLICT_TYPE}$PACKAGE_FEATURE"
-else
+if [[ -z "${PACKAGE_FEATURE}" || -z "${PACKAGE_FEATURE:1}" ]]; then
 	_FEATURE_STRING=""
+else
+	_FEATURE_STRING="${PACKAGE_FEATURE}"
 fi
 
 shopt -s extglob
@@ -1816,7 +1815,7 @@ write_pkginfo() {
 	mapfile -t provides < <(find_libprovides)
 	mapfile -t depends < <(find_libdepends)
 
-	if [[ "$PACKAGE_CONFLICT_TYPE" == "@" ]]; then
+	if [[ "${PACKAGE_FEATURE:0:1}" == "@" ]]; then
 		conflicts=("${conflicts[@]}" "$pkgname")
 		provides=("${provides[@]}" "$pkgname")
 	fi

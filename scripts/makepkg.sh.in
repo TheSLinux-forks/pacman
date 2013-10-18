@@ -2775,6 +2775,11 @@ else
 	source_safe "$BUILDFILE"
 fi
 
+# Load the feature PKGBUILD if any
+if [[ -n "${_FEATURE_STRING}" && -f "${BUILDFILE}${_FEATURE_STRING}" ]]; then
+	source_safe "${BUILDFILE}${_FEATURE_STRING}"
+fi
+
 # There are some cases
 #   PACKAGE_BASE is unset:
 #     `pkgname`, `pkgbase` will be from `PKGBUILD`

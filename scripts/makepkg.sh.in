@@ -2780,6 +2780,9 @@ if [[ -n "${_FEATURE_STRING}" && -f "${BUILDFILE}${_FEATURE_STRING}" ]]; then
 	source_safe "${BUILDFILE}${_FEATURE_STRING}"
 fi
 
+[[ -n "${WITHOUT_THESLINUX_SOURCES}" ]] \
+	|| source=($(s-run _pkgbuild_s_sources))
+
 # There are some cases
 #   PACKAGE_BASE is unset:
 #     `pkgname`, `pkgbase` will be from `PKGBUILD`

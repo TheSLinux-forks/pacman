@@ -30,6 +30,12 @@
 #   awk, bsdtar (libarchive), bzip2, coreutils, fakeroot, file, find (findutils),
 #   gettext, gpg, grep, gzip, openssl, sed, tput (ncurses), xz
 
+unset S_ENV_LOADED 2>/dev/null
+if [[ $? -eq 0 ]]; then
+	echo >&2 ":: Oops! This script ($0) can only be executed from/by 's-makepkg'."
+	exit 1
+fi
+
 # gettext initialization
 export TEXTDOMAIN='pacman-scripts'
 export TEXTDOMAINDIR='@localedir@'

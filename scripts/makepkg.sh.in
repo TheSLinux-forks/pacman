@@ -102,27 +102,27 @@ shopt -s extglob
 ### SUBROUTINES ###
 
 plain() {
-	local mesg=$1; shift
+	local mesg=${1-}; shift
 	printf "${BOLD}    ${mesg}${ALL_OFF}\n" "$@" >&2
 }
 
 msg() {
-	local mesg=$1; shift
+	local mesg=${1-}; shift
 	printf "${GREEN}==>${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
 }
 
 msg2() {
-	local mesg=$1; shift
+	local mesg=${1-}; shift
 	printf "${BLUE}  ->${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
 }
 
 warning() {
-	local mesg=$1; shift
+	local mesg=${1-}; shift
 	printf "${YELLOW}==> $(gettext "WARNING:")${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
 }
 
 error() {
-	local mesg=$1; shift
+	local mesg=${1-}; shift
 	printf "${RED}==> $(gettext "ERROR:")${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
 }
 
@@ -132,13 +132,13 @@ error() {
 # the fakeroot call, the error message will be printed by the main call.
 ##
 trap_exit() {
-	local signal=$1; shift
+	local signal=${1-}; shift
 
 	if (( ! INFAKEROOT )); then
 		echo
 		error "$@"
 	fi
-	[[ -n $srclinks ]] && rm -rf "$srclinks"
+	[[ -n ${srclinks-} ]] && rm -rf "$srclinks"
 
 	# unset the trap for this signal, and then call the default handler
 	trap -- "$signal"
@@ -206,8 +206,8 @@ enter_fakeroot() {
 
 # Return the absolute filename of a source entry
 get_filepath() {
-	local file="$(get_filename "$1")"
-	local proto="$(get_protocol "$1")"
+	local file="$(get_filename "${1-}")"
+	local proto="$(get_protocol "${1-}")"
 
 	case $proto in
 		bzr*|git*|hg*|svn*)
@@ -235,7 +235,7 @@ get_filepath() {
 
 # extract the filename from a source entry
 get_filename() {
-	local netfile=$1
+	local netfile=${1-}
 
 	# if a filename is specified, use it
 	if [[ $netfile = *::* ]]; then
@@ -270,7 +270,7 @@ get_url() {
 
 # extract the protocol from a source entry - return "local" for local sources
 get_protocol() {
-	if [[ $1 = *://* ]]; then
+	if [[ ${1-} = *://* ]]; then
 		# strip leading filename
 		local proto="${1##*::}"
 		printf "%s\n" "${proto%%://*}"
@@ -280,7 +280,7 @@ get_protocol() {
 }
 
 get_downloadclient() {
-	local proto=$1
+	local proto=${1-}
 
 	# loop through DOWNLOAD_AGENTS variable looking for protocol
 	local i
@@ -312,7 +312,7 @@ get_downloadclient() {
 }
 
 download_local() {
-	local netfile=$1
+	local netfile=${1-}
 	local filepath=$(get_filepath "$netfile")
 
 	if [[ -n "$filepath" ]]; then
@@ -327,7 +327,7 @@ download_local() {
 }
 
 download_file() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local filepath=$(get_filepath "$netfile")
 	if [[ -n "$filepath" ]]; then
@@ -387,7 +387,7 @@ download_file() {
 }
 
 extract_file() {
-	local file=$1
+	local file=${1-}
 	# fix flyspray #6246
 	local file_type=$(file -bizL "$file")
 	local ext=${file##*.}
@@ -440,7 +440,7 @@ extract_file() {
 }
 
 download_bzr() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local url=$(get_url "$netfile")
 	url=${url##*bzr+}
@@ -491,7 +491,7 @@ download_bzr() {
 }
 
 extract_bzr() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local fragment=${netfile#*#}
 	if [[ $fragment = "$netfile" ]]; then
@@ -515,7 +515,7 @@ extract_bzr() {
 }
 
 download_git() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local dir=$(get_filepath "$netfile")
 	[[ -z "$dir" ]] && dir="$SRCDEST/$(get_filename "$netfile")"
@@ -550,7 +550,7 @@ download_git() {
 }
 
 extract_git() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local fragment=${netfile#*#}
 	if [[ $fragment = "$netfile" ]]; then
@@ -604,7 +604,7 @@ extract_git() {
 }
 
 download_hg() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local dir=$(get_filepath "$netfile")
 	[[ -z "$dir" ]] && dir="$SRCDEST/$(get_filename "$netfile")"
@@ -633,7 +633,7 @@ download_hg() {
 }
 
 extract_hg() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local fragment=${netfile#*#}
 	if [[ $fragment = "$netfile" ]]; then
@@ -673,7 +673,7 @@ extract_hg() {
 }
 
 download_svn() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local fragment=${netfile#*#}
 	if [[ $fragment = "$netfile" ]]; then
@@ -709,7 +709,7 @@ download_svn() {
 }
 
 extract_svn() {
-	local netfile=$1
+	local netfile=${1-}
 
 	local fragment=${netfile#*#}
 	if [[ $fragment = "$netfile" ]]; then
@@ -751,7 +751,7 @@ download_sources() {
 	msg "$(gettext "Retrieving sources...")"
 
 	local GET_VCS=1
-	if [[ $1 == "fast" ]]; then
+	if [[ ${1-} == "fast" ]]; then
 		GET_VCS=0
 	fi
 
@@ -806,7 +806,7 @@ update_pkgver() {
 
 # Print 'source not found' error message and exit makepkg
 missing_source_file() {
-	error "$(gettext "Unable to find source file %s.")" "$(get_filename "$1")"
+	error "$(gettext "Unable to find source file %s.")" "$(get_filename "${1-}")"
 	plain "$(gettext "Aborting...")"
 	exit 1 # $E_MISSING_FILE
 }
@@ -816,7 +816,7 @@ missing_source_file() {
 # return : full version spec, including epoch (if necessary), pkgver, pkgrel
 ##
 get_full_version() {
-	if [[ -z $1 ]]; then
+	if [[ -z ${1-} ]]; then
 		if [[ $epoch ]] && (( ! $epoch )); then
 			printf "%s\n" "$pkgver-$pkgrel"
 		else
@@ -825,7 +825,7 @@ get_full_version() {
 	else
 		for i in pkgver pkgrel epoch; do
 			local indirect="${i}_override"
-			eval $(declare -f package_$1 | sed -n "s/\(^[[:space:]]*$i=\)/${i}_override=/p")
+			eval $(declare -f package_${1-} | sed -n "s/\(^[[:space:]]*$i=\)/${i}_override=/p")
 			[[ -z ${!indirect} ]] && eval ${indirect}=\"${!i}\"
 		done
 		if (( ! $epoch_override )); then
@@ -841,7 +841,7 @@ get_full_version() {
 # return : architecture of the package
 ##
 get_pkg_arch() {
-	if [[ -z $1 ]]; then
+	if [[ -z ${1-} ]]; then
 		if [[ $arch = "any" ]]; then
 			printf "%s\n" "any"
 		else
@@ -849,7 +849,7 @@ get_pkg_arch() {
 		fi
 	else
 		local arch_override
-		eval $(declare -f package_$1 | sed -n 's/\(^[[:space:]]*arch=\)/arch_override=/p')
+		eval $(declare -f package_${1-} | sed -n 's/\(^[[:space:]]*arch=\)/arch_override=/p')
 		(( ${#arch_override[@]} == 0 )) && arch_override=("${arch[@]}")
 		if [[ $arch_override = "any" ]]; then
 			printf "%s\n" "any"
@@ -869,7 +869,7 @@ get_pkg_arch() {
 #          127 - not found
 ##
 check_option() {
-	in_opt_array "$1" ${options[@]}
+	in_opt_array "${1-}" ${options[@]}
 	case $? in
 		0) # assert enabled
 			[[ $2 = y ]]
@@ -880,7 +880,7 @@ check_option() {
 	esac
 
 	# fall back to makepkg.conf options
-	in_opt_array "$1" ${OPTIONS[@]}
+	in_opt_array "${1-}" ${OPTIONS[@]}
 	case $? in
 		0) # assert enabled
 			[[ $2 = y ]]
@@ -904,7 +904,7 @@ check_option() {
 #          127 - not found
 ##
 check_buildenv() {
-	in_opt_array "$1" ${BUILDENV[@]}
+	in_opt_array "${1-}" ${BUILDENV[@]}
 	case $? in
 		0) # assert enabled
 			[[ $2 = "y" ]]
@@ -926,7 +926,7 @@ check_buildenv() {
 #          127 - not found
 ##
 in_opt_array() {
-	local needle=$1; shift
+	local needle=${1-}; shift
 
 	local i opt
 	for (( i = $#; i > 0; i-- )); do
@@ -951,7 +951,7 @@ in_opt_array() {
 #          1 - not found
 ##
 in_array() {
-	local needle=$1; shift
+	local needle=${1-}; shift
 	local item
 	for item in "$@"; do
 		[[ $item = "$needle" ]] && return 0 # Found
@@ -971,12 +971,12 @@ source_has_signatures() {
 
 run_pacman() {
 	local cmd
-	if [[ ! $1 = -@(T|Qq) ]]; then
+	if [[ ! ${1-} = -@(T|Qq) ]]; then
 		cmd=("$PACMAN_PATH" $PACMAN_OPTS "$@")
 	else
 		cmd=("$PACMAN_PATH" "$@")
 	fi
-	if (( ! ASROOT )) && [[ ! $1 = -@(T|Qq) ]]; then
+	if (( ! ASROOT )) && [[ ! ${1-} = -@(T|Qq) ]]; then
 		if type -p sudo >/dev/null; then
 			cmd=(sudo "${cmd[@]}")
 		else
@@ -1321,7 +1321,7 @@ extract_sources() {
 	local netfile
 	for netfile in "${source[@]}"; do
 		local file=$(get_filename "$netfile")
-		if in_array "$file" "${noextract[@]}"; then
+		if in_array "$file" "${noextract[@]-}"; then
 			#skip source files in the noextract=() array
 			#  these are marked explicitly to NOT be extracted
 			continue
@@ -1359,7 +1359,7 @@ error_function() {
 	fi
 	# first exit all subshells, then print the error
 	if (( ! BASH_SUBSHELL )); then
-		error "$(gettext "A failure occurred in %s().")" "$1"
+		error "$(gettext "A failure occurred in %s().")" "${1-}"
 		plain "$(gettext "Aborting...")"
 		remove_deps
 	fi
@@ -1367,8 +1367,8 @@ error_function() {
 }
 
 cd_safe() {
-	if ! cd "$1"; then
-		error "$(gettext "Failed to change to directory %s")" "$1"
+	if ! cd "${1-}"; then
+		error "$(gettext "Failed to change to directory %s")" "${1-}"
 		plain "$(gettext "Aborting...")"
 		exit 1
 	fi
@@ -1377,7 +1377,7 @@ cd_safe() {
 source_safe() {
 	shopt -u extglob
 	if ! source "$@"; then
-		error "$(gettext "Failed to source %s")" "$1"
+		error "$(gettext "Failed to source %s")" "${1-}"
 		exit 1
 	fi
 	shopt -s extglob
@@ -1392,7 +1392,7 @@ run_function_safe() {
 	restoretrap=$(trap -p ERR)
 	trap 'error_function $pkgfunc' ERR
 
-	run_function "$1"
+	run_function "${1-}"
 
 	eval $restoretrap
 
@@ -1401,10 +1401,10 @@ run_function_safe() {
 }
 
 run_function() {
-	if [[ -z $1 ]]; then
+	if [[ -z ${1-} ]]; then
 		return 1
 	fi
-	local pkgfunc="$1"
+	local pkgfunc="${1-}"
 
 	# clear user-specified buildflags if requested
 	if check_option "buildflags" "n"; then
@@ -1487,21 +1487,21 @@ run_check() {
 
 run_package() {
 	local pkgfunc
-	if [[ -z $1 ]]; then
+	if [[ -z ${1-} ]]; then
 		pkgfunc="package"
 	else
-		pkgfunc="package_$1"
+		pkgfunc="package_${1-}"
 	fi
 
 	run_function_safe "$pkgfunc"
 }
 
 build_id() {
-	LANG=C readelf -n $1 | sed -n '/Build ID/ { s/.*: //p; q; }'
+	LANG=C readelf -n ${1-} | sed -n '/Build ID/ { s/.*: //p; q; }'
 }
 
 strip_file() {
-	local binary=$1; shift
+	local binary=${1-}; shift
 
 	if check_option "debug" "y"; then
 		local bid=$(build_id "$binary")
@@ -1612,7 +1612,7 @@ tidy_install() {
 					fi
 				fi
 			done
-			if [[ -z ${files[$inode]} ]]; then
+			if [[ -z ${files[${inode}]-} ]]; then
 				files[$inode]=$file
 				gzip -9 -n -f "$file"
 			else
@@ -1815,21 +1815,16 @@ write_pkginfo() {
 	mapfile -t provides < <(find_libprovides)
 	mapfile -t depends < <(find_libdepends)
 
-	if [[ "${PACKAGE_FEATURE:0:1}" == "@" ]]; then
-		conflicts=("${conflicts[@]}" "$pkgname")
-		provides=("${provides[@]}" "$pkgname")
-	fi
-
-	[[ $license ]]      && printf "license = %s\n"     "${license[@]}"
-	[[ $replaces ]]     && printf "replaces = %s\n"    "${replaces[@]}"
-	[[ $groups ]]       && printf "group = %s\n"       "${groups[@]}"
-	[[ $conflicts ]]    && printf "conflict = %s\n"    "${conflicts[@]}"
-	[[ $provides ]]     && printf "provides = %s\n"    "${provides[@]}"
-	[[ $backup ]]       && printf "backup = %s\n"      "${backup[@]}"
-	[[ $depends ]]      && printf "depend = %s\n"      "${depends[@]}"
-	[[ $optdepends ]]   && printf "optdepend = %s\n"   "${optdepends[@]//+([[:space:]])/ }"
-	[[ $makedepends ]]  && printf "makedepend = %s\n"  "${makedepends[@]}"
-	[[ $checkdepends ]] && printf "checkdepend = %s\n" "${checkdepends[@]}"
+	[[ -n ${license[@]-} ]]      && printf "license = %s\n"     "${license[@]}"
+	[[ -n ${replaces[@]-} ]]     && printf "replaces = %s\n"    "${replaces[@]}"
+	[[ -n ${groups[@]-} ]]       && printf "group = %s\n"       "${groups[@]}"
+	[[ -n ${conflicts[@]-} ]]    && printf "conflict = %s\n"    "${conflicts[@]}"
+	[[ -n ${provides[@]-} ]]     && printf "provides = %s\n"    "${provides[@]}"
+	[[ -n ${backup[@]-} ]]       && printf "backup = %s\n"      "${backup[@]}"
+	[[ -n ${depends[@]-} ]]      && printf "depend = %s\n"      "${depends[@]}"
+	[[ -n ${optdepends[@]-} ]]   && printf "optdepend = %s\n"   "${optdepends[@]//+([[:space:]])/ }"
+	[[ -n ${makedepends[@]-} ]]  && printf "makedepend = %s\n"  "${makedepends[@]-}"
+	[[ -n ${checkdepends[@]-} ]] && printf "checkdepend = %s\n" "${checkdepends[@]}"
 
 	local it
 	for it in "${packaging_options[@]}"; do
@@ -1867,9 +1862,9 @@ create_package() {
 	for i in 'changelog/.CHANGELOG' 'install/.INSTALL'; do
 		IFS='/' read -r orig dest < <(printf '%s\n' "$i")
 
-		if [[ -n ${!orig} ]]; then
+		if [[ -n ${!orig-} ]]; then
 			msg2 "$(gettext "Adding %s file...")" "$orig"
-			cp "$startdir/${!orig}" "$dest"
+			cp "$startdir/${!orig-}" "$dest"
 			chmod 644 "$dest"
 			comp_files+=("$dest")
 		fi
@@ -1964,7 +1959,7 @@ create_signature() {
 		return
 	fi
 	local ret=0
-	local filename="$1"
+	local filename="${1-}"
 	msg "$(gettext "Signing package...")"
 
 	local SIGNWITHKEY=""
@@ -2094,7 +2089,7 @@ check_sanity() {
 		fi
 	done
 
-	for i in "${pkgname[@]}"; do
+	for i in "${pkgname[@]-}"; do
 		if [[ ${i:0:1} = "-" ]]; then
 			error "$(gettext "%s is not allowed to start with a hyphen.")" "pkgname${_FEATURE_STRING}"
 			ret=1
@@ -2234,7 +2229,7 @@ check_sanity() {
 		done
 	fi
 
-	for i in ${PKGLIST[@]}; do
+	for i in ${PKGLIST[@]-}; do
 		if ! in_array $i ${pkgname[@]}; then
 			error "$(gettext "Requested package %s is not provided in %s")" "$i" "$BUILDFILE"
 			ret=1
@@ -2442,7 +2437,7 @@ run_split_packaging() {
 
 # Canonicalize a directory path if it exists
 canonicalize_path() {
-	local path="$1";
+	local path="${1-}";
 
 	if [[ -d $path ]]; then
 		(
@@ -2457,7 +2452,7 @@ canonicalize_path() {
 dir_is_empty() {
 	(
 		shopt -s dotglob nullglob
-		files=("$1"/*)
+		files=("${1-}"/*)
 		(( ${#files} == 0 ))
 	)
 }
@@ -2550,7 +2545,7 @@ set -- "${OPTRET[@]}"
 unset OPT_SHORT OPT_LONG OPTRET
 
 while true; do
-	case "$1" in
+	case "${1-}" in
 		# Pacman Options
 		--asdeps)         ASDEPS=1;;
 		--noconfirm)      PACMAN_OPTS+=" --noconfirm" ;;
@@ -2563,7 +2558,7 @@ while true; do
 		-A|--ignorearch)  IGNOREARCH=1 ;;
 		-c|--clean)       CLEANUP=1 ;;
 		--check)          RUN_CHECK='y' ;;
-		--config)         shift; MAKEPKG_CONF=$1 ;;
+		--config)         shift; MAKEPKG_CONF=${1-} ;;
 		-d|--nodeps)      NODEPS=1 ;;
 		-e|--noextract)   NOEXTRACT=1 ;;
 		-f|--force)       FORCE=1 ;;
@@ -2571,14 +2566,14 @@ while true; do
 		-g|--geninteg)    GENINTEG=1 ;;
 		--holdver)        HOLDVER=1 ;;
 		-i|--install)     INSTALL=1 ;;
-		--key)            shift; GPGKEY=$1 ;;
+		--key)            shift; GPGKEY=${1-} ;;
 		-L|--log)         LOGGING=1 ;;
 		-m|--nocolor)     USE_COLOR='n' ;;
 		--nocheck)        RUN_CHECK='n' ;;
 		--nosign)         SIGNPKG='n' ;;
 		-o|--nobuild)     NOBUILD=1 ;;
-		-p)               shift; BUILDFILE=$1 ;;
-		--pkg)            shift; IFS=, read -ra p <<<"$1"; PKGLIST+=("${p[@]}"); unset p ;;
+		-p)               shift; BUILDFILE=${1-} ;;
+		--pkg)            shift; IFS=, read -ra p <<<"${1-}"; PKGLIST+=("${p[@]}"); unset p ;;
 		-r|--rmdeps)      RMDEPS=1 ;;
 		-R|--repackage)   REPKG=1 ;;
 		--skipchecksums)  SKIPCHECKSUMS=1 ;;
@@ -2606,15 +2601,15 @@ trap 'trap_exit INT "$(gettext "Aborted by user! Exiting...")"' INT
 trap 'trap_exit USR1 "$(gettext "An unknown error has occurred. Exiting...")"' ERR
 
 # preserve environment variables and canonicalize path
-[[ -n ${PKGDEST} ]] && _PKGDEST=$(canonicalize_path ${PKGDEST})
-[[ -n ${SRCDEST} ]] && _SRCDEST=$(canonicalize_path ${SRCDEST})
-[[ -n ${SRCPKGDEST} ]] && _SRCPKGDEST=$(canonicalize_path ${SRCPKGDEST})
-[[ -n ${LOGDEST} ]] && _LOGDEST=$(canonicalize_path ${LOGDEST})
-[[ -n ${BUILDDIR} ]] && _BUILDDIR=$(canonicalize_path ${BUILDDIR})
-[[ -n ${PKGEXT} ]] && _PKGEXT=${PKGEXT}
-[[ -n ${SRCEXT} ]] && _SRCEXT=${SRCEXT}
-[[ -n ${GPGKEY} ]] && _GPGKEY=${GPGKEY}
-[[ -n ${PACKAGER} ]] && _PACKAGER=${PACKAGER}
+[[ -n ${PKGDEST-} ]] && _PKGDEST=$(canonicalize_path ${PKGDEST})
+[[ -n ${SRCDEST-} ]] && _SRCDEST=$(canonicalize_path ${SRCDEST})
+[[ -n ${SRCPKGDEST-} ]] && _SRCPKGDEST=$(canonicalize_path ${SRCPKGDEST})
+[[ -n ${LOGDEST-} ]] && _LOGDEST=$(canonicalize_path ${LOGDEST})
+[[ -n ${BUILDDIR-} ]] && _BUILDDIR=$(canonicalize_path ${BUILDDIR})
+[[ -n ${PKGEXT-} ]] && _PKGEXT=${PKGEXT}
+[[ -n ${SRCEXT-} ]] && _SRCEXT=${SRCEXT}
+[[ -n ${GPGKEY-} ]] && _GPGKEY=${GPGKEY}
+[[ -n ${PACKAGER-} ]] && _PACKAGER=${PACKAGER}
 
 # default config is makepkg.conf
 MAKEPKG_CONF=${MAKEPKG_CONF:-$confdir/makepkg.conf}
@@ -2641,7 +2636,7 @@ PACMAN_PATH=$(type -P $PACMAN) || true
 
 # check if messages are to be printed using color
 unset ALL_OFF BOLD BLUE GREEN RED YELLOW
-if [[ -t 2 && ! $USE_COLOR = "n" ]] && check_buildenv "color" "y"; then
+if [[ -t 2 && ! ${USE_COLOR-} = "n" ]] && check_buildenv "color" "y"; then
 	# prefer terminal safe colored and bold text when tput is supported
 	if tput setaf 0 &>/dev/null; then
 		ALL_OFF="$(tput sgr0)"
@@ -2662,7 +2657,7 @@ fi
 readonly ALL_OFF BOLD BLUE GREEN RED YELLOW
 
 # override settings with an environment variable for batch processing
-BUILDDIR=${_BUILDDIR:-$BUILDDIR}
+BUILDDIR=${_BUILDDIR:-${BUILDDIR-}}
 BUILDDIR=${BUILDDIR:-$startdir} #default to $startdir if undefined
 if [[ ! -d $BUILDDIR ]]; then
 	if ! mkdir -p "$BUILDDIR"; then
@@ -2702,7 +2697,7 @@ if (( SOURCEONLY )) && [[ ! -w $SRCPKGDEST ]]; then
 	exit 1
 fi
 
-LOGDEST=${_LOGDEST:-$LOGDEST}
+LOGDEST=${_LOGDEST:-${LOGDEST-}}
 LOGDEST=${LOGDEST:-$startdir} #default to $startdir if undefined
 if (( LOGGING )) && [[ ! -w $LOGDEST ]]; then
 	error "$(gettext "You do not have write permission to store logs in %s.")" "$LOGDEST"
@@ -2836,7 +2831,7 @@ if declare -f build >/dev/null; then
 fi
 if declare -f check >/dev/null; then
 	# "Hide" check() function if not going to be run
-	if [[ $RUN_CHECK = 'y' ]] || { ! check_buildenv "check" "n" && [[ $RUN_CHECK != "n" ]]; }; then
+	if [[ ${RUN_CHECK-} = 'y' ]] || { ! check_buildenv "check" "n" && [[ ${RUN_CHECK-} != "n" ]]; }; then
 		CHECKFUNC=1
 	fi
 fi
@@ -2846,7 +2841,7 @@ elif [[ $SPLITPKG -eq 0 ]] && declare -f package_${pkgname} >/dev/null; then
 	SPLITPKG=1
 fi
 
-if [[ -n "${PKGLIST[@]}" ]]; then
+if [[ -n "${PKGLIST[@]-}" ]]; then
 	unset pkgname
 	pkgname=("${PKGLIST[@]}")
 fi
@@ -2962,7 +2957,7 @@ else
 	fi
 
 	msg "$(gettext "Checking buildtime dependencies...")"
-	resolve_deps ${makedepends[@]} || deperr=1
+	resolve_deps ${makedepends[@]-} || deperr=1
 
 	if (( CHECKFUNC )); then
 		resolve_deps ${checkdepends[@]} || deperr=1

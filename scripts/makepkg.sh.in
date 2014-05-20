@@ -1237,7 +1237,7 @@ check_pgpsigs() {
 	msg "$(gettext "Verifying source file signatures with %s...")" "gpg"
 
 	local file pubkey
-	local warning=0
+	local warnings=0
 	local errors=0
 	local statusfile=$(mktemp)
 

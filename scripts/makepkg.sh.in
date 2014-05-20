@@ -1354,7 +1354,7 @@ extract_sources() {
 }
 
 error_function() {
-	if [[ -p $logpipe ]]; then
+	if [[ -p ${logpipe-} ]]; then
 		rm "$logpipe"
 	fi
 	# first exit all subshells, then print the error

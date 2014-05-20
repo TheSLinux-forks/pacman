@@ -2754,14 +2754,8 @@ fi
 
 BUILDFILE=${BUILDFILE:-$BUILDSCRIPT}
 if [[ ! -f $BUILDFILE ]]; then
-	if [[ -t 0 ]]; then
-		error "$(gettext "%s does not exist.")" "$BUILDFILE"
-		exit 1
-	else
-		# PKGBUILD passed through a pipe
-		BUILDFILE=/dev/stdin
-		source_safe "$BUILDFILE"
-	fi
+	error "$(gettext "%s does not exist.")" "$BUILDFILE"
+	exit 1
 else
 	crlftest=$(file "$BUILDFILE" | grep -F 'CRLF' || true)
 	if [[ -n $crlftest ]]; then

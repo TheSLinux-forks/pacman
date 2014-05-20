@@ -97,12 +97,6 @@ FORCE_VER=""
 
 PACMAN_OPTS=
 
-if [[ -z "${PACKAGE_FEATURE}" || -z "${PACKAGE_FEATURE:1}" ]]; then
-	_FEATURE_STRING=""
-else
-	_FEATURE_STRING="${PACKAGE_FEATURE}"
-fi
-
 shopt -s extglob
 
 ### SUBROUTINES ###
@@ -2741,56 +2735,26 @@ else
 	fi
 fi
 
-unset pkgname pkgbase pkgver pkgrel epoch pkgdesc url license groups provides
-unset md5sums replaces depends conflicts backup source install changelog build
-unset makedepends optdepends options noextract
-
 pkgver="${PACKAGE_VERSION:-}"
 pkgrel="${PACKAGE_RELEASE:-}"
 pkgbase="${PACKAGE_BASE:-}"
 
-if [[ -n "${PACKAGE_SHA512SUMS}" ]]; then
+if [[ -n "${PACKAGE_SHA512SUMS-}" ]]; then
 	sha512sums=("${PACKAGE_SHA512SUMS[@]}")
 fi
 
 BUILDFILE=${BUILDFILE:-$BUILDSCRIPT}
-if [[ ! -f $BUILDFILE ]]; then
-	error "$(gettext "%s does not exist.")" "$BUILDFILE"
+crlftest=$(file "$BUILDFILE" | grep -F 'CRLF' || true)
+if [[ -n $crlftest ]]; then
+	error "$(gettext "%s contains %s characters and cannot be sourced.")" "$BUILDFILE" "CRLF"
 	exit 1
-else
-	crlftest=$(file "$BUILDFILE" | grep -F 'CRLF' || true)
-	if [[ -n $crlftest ]]; then
-		error "$(gettext "%s contains %s characters and cannot be sourced.")" "$BUILDFILE" "CRLF"
-		exit 1
-	fi
-
-	if [[ ${BUILDFILE:0:1} != "/" ]]; then
-		BUILDFILE="$startdir/$BUILDFILE"
-	fi
-	source_safe "$BUILDFILE"
 fi
 
-# Load the feature PKGBUILD if any
-if [[ -n "${_FEATURE_STRING}" && -f "${BUILDFILE}${_FEATURE_STRING}" ]]; then
-	source_safe "${BUILDFILE}${_FEATURE_STRING}"
+if [[ ${BUILDFILE:0:1} != "/" ]]; then
+	BUILDFILE="$startdir/$BUILDFILE"
 fi
+_pkgbuild_load "$BUILDFILE"
 
-[[ -n "${WITHOUT_THESLINUX_SOURCES}" ]] \
-	|| source=($(s-run _pkgbuild_s_sources))
-
-# There are some cases
-#   PACKAGE_BASE is unset:
-#     `pkgname`, `pkgbase` will be from `PKGBUILD`
-#
-#   PACKAGE_BASE is set:
-#     `pkgbase` is defined
-#     `pkgname` will be `pkgbase` if `pkgname` is unset
-#
-if [[ -z "$pkgname" ]]; then
-	pkgname="$pkgbase"
-fi
-# set defaults if they weren't specified in buildfile
-pkgbase=${pkgbase:-${pkgname[0]}}
 epoch=${epoch:-0}
 
 if [[ $BUILDDIR = "$startdir" ]]; then

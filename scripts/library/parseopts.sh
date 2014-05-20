@@ -130,7 +130,7 @@ parseopts() {
 	done
 
 	# add end-of-opt terminator and any leftover positional parameters
-	OPTRET+=('--' "${unused_argv[@]}" "$@")
+	OPTRET+=('--' "${unused_argv[@]-}" "$@")
 	unset longoptmatch
 
 	return 0

@@ -1730,7 +1730,7 @@ find_libdepends() {
 
 find_libprovides() {
 	local p libprovides missing
-	for p in "${provides[@]}"; do
+	for p in "${provides[@]-}"; do
 		missing=0
 		case "$p" in
 			*.so)
@@ -1775,7 +1775,7 @@ find_libprovides() {
 		fi
 	done
 
-	printf '%s\n' "${libprovides[@]}"
+	printf '%s\n' "${libprovides[@]-}"
 }
 
 check_license() {

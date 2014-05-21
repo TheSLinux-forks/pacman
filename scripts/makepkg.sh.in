@@ -196,7 +196,7 @@ clean_up() {
 
 enter_fakeroot() {
 	msg "$(gettext "Entering %s environment...")" "fakeroot"
-	fakeroot -- $0 -F "${ARGLIST[@]}" || exit $?
+	fakeroot -- $0 -F "${ARGLIST[@]-}" || exit $?
 }
 
 

@@ -2158,7 +2158,8 @@ check_sanity() {
 	local provides_list=()
 	eval $(awk '/^[[:space:]]*provides=/,/\)/' "$BUILDFILE" | \
 		sed -e "s/provides=/provides_list+=/" -e "s/#.*//" -e 's/\\$//')
-	for i in ${provides_list[@]-}; do
+	[[ -n "${provides_list[@]}" ]] \
+	&& for i in "${provides_list[@]}"; do
 		if [[ $i == *['<>']* ]]; then
 			error "$(gettext "%s array cannot contain comparison (< or >) operators.")" "provides"
 			ret=1
@@ -2168,7 +2169,8 @@ check_sanity() {
 	local backup_list=()
 	eval $(awk '/^[[:space:]]*backup=/,/\)/' "$BUILDFILE" | \
 		sed -e "s/backup=/backup_list+=/" -e "s/#.*//" -e 's/\\$//')
-	for i in "${backup_list[@]-}"; do
+	[[ -n "${backup_list[@]-}" ]] \
+	&& for i in "${backup_list[@]}"; do
 		if [[ ${i:0:1} = "/" ]]; then
 			error "$(gettext "%s entry should not contain leading slash : %s")" "backup" "$i"
 			ret=1
@@ -2178,7 +2180,8 @@ check_sanity() {
 	local optdepends_list=()
 	eval $(awk '/^[[:space:]]*optdepends=\(/,/\)[[:space:]]*(#.*)?$/' "$BUILDFILE" | \
 		sed -e "s/optdepends=/optdepends_list+=/" -e "s/#.*//" -e 's/\\$//')
-	for i in "${optdepends_list[@]-}"; do
+	[[ -n "${optdepends_list[@]-}" ]] \
+	&& for i in "${optdepends_list[@]}"; do
 		local pkg=${i%%:[[:space:]]*}
 		# the '-' character _must_ be first or last in the character range
 		if [[ $pkg != +([-[:alnum:]><=.+_:]) ]]; then

@@ -870,7 +870,7 @@ get_pkg_arch() {
 #          127 - not found
 ##
 check_option() {
-	in_opt_array "${1-}" ${options[@]}
+	in_opt_array "${1-}" ${options[@]-}
 	case $? in
 		0) # assert enabled
 			[[ $2 = y ]]
@@ -881,7 +881,7 @@ check_option() {
 	esac
 
 	# fall back to makepkg.conf options
-	in_opt_array "${1-}" ${OPTIONS[@]}
+	in_opt_array "${1-}" ${OPTIONS[@]-}
 	case $? in
 		0) # assert enabled
 			[[ $2 = y ]]

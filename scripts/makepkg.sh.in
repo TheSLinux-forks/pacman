@@ -284,7 +284,7 @@ get_downloadclient() {
 
 	# loop through DOWNLOAD_AGENTS variable looking for protocol
 	local i
-	for i in "${DLAGENTS[@]}"; do
+	[[ -n "${DLAGENTS[@]-}" ]] && for i in "${DLAGENTS[@]}"; do
 		local handler="${i%%::*}"
 		if [[ $proto = "$handler" ]]; then
 			local agent="${i##*::}"
@@ -756,6 +756,7 @@ download_sources() {
 	fi
 
 	local netfile
+	# FIXME: We hope ${source} will never be empty!
 	for netfile in "${source[@]}"; do
 		pushd "$SRCDEST" &>/dev/null
 

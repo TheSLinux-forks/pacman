@@ -2159,7 +2159,7 @@ check_sanity() {
 	local provides_list=()
 	eval $(awk '/^[[:space:]]*provides=/,/\)/' "$BUILDFILE" | \
 		sed -e "s/provides=/provides_list+=/" -e "s/#.*//" -e 's/\\$//')
-	[[ -n "${provides_list[@]}" ]] \
+	[[ -n "${provides_list[@]-}" ]] \
 	&& for i in "${provides_list[@]}"; do
 		if [[ $i == *['<>']* ]]; then
 			error "$(gettext "%s array cannot contain comparison (< or >) operators.")" "provides"

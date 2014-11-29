@@ -298,7 +298,7 @@ static void curl_set_handle_opts(struct dload_payload *payload,
 	char *base_url_escaped = curl_easy_escape(curl, base_url, strlen(base_url));
 	char *url_escaped;
 
-	MALLOC(url_escaped, strlen(dir_url) + strlen(base_url_escaped) + 1, RET_ERR_VOID(payload->handle, ALPM_ERR_MEMORY));
+	MALLOC(url_escaped, strlen(dir_url) + strlen(base_url_escaped) + 2, RET_ERR_VOID(payload->handle, ALPM_ERR_MEMORY));
 	sprintf(url_escaped, "%s/%s", dir_url, base_url_escaped);
 
 	curl_easy_setopt(curl, CURLOPT_URL, url_escaped);

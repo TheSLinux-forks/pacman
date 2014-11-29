@@ -38,6 +38,7 @@
 
 #ifdef HAVE_LIBCURL
 #include <curl/curl.h>
+#include <libgen.h>
 #endif
 
 /* libalpm */
@@ -282,10 +283,31 @@ static void curl_set_handle_opts(struct dload_payload *payload,
 	const char *useragent = getenv("HTTP_USER_AGENT");
 	struct stat st;
 
+	char *d_base_url, *d_dir_url;
+
+	d_base_url = strdup(payload->fileurl);
+	d_dir_url = strdup(payload->fileurl);
+
+	char *base_url = basename(d_base_url);
+	char *dir_url = dirname(d_dir_url);
+
 	/* the curl_easy handle is initialized with the alpm handle, so we only need
 	 * to reset the handle's parameters for each time it's used. */
 	curl_easy_reset(curl);
-	curl_easy_setopt(curl, CURLOPT_URL, payload->fileurl);
+
+	char *base_url_escaped = curl_easy_escape(curl, base_url, strlen(base_url));
+	char *url_escaped;
+
+	MALLOC(url_escaped, strlen(dir_url) + strlen(base_url_escaped) + 1, RET_ERR_VOID(payload->handle, ALPM_ERR_MEMORY));
+	sprintf(url_escaped, "%s/%s", dir_url, base_url_escaped);
+
+	curl_easy_setopt(curl, CURLOPT_URL, url_escaped);
+
+	free(d_base_url);
+	free(d_dir_url);
+	free(base_url_escaped);
+	curl_free(url_escaped);
+
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
@@ -556,15 +578,20 @@ static int curl_download_internal(struct dload_payload *payload,
 		if(effective_filename && strlen(effective_filename) > 2) {
 			effective_filename++;
 
+			/* FIXME: handle the bad string after unescaping,
+			 * FIXME: by specifying the last argument of (curl_easy_unescape) */
+			char *effective_filename_unescaped = curl_easy_unescape(curl, effective_filename, strlen(effective_filename), NULL);
 			/* if destfile was never set, we wrote to a tempfile. even if destfile is
 			 * set, we may have followed some redirects and the effective url may
 			 * have a better suggestion as to what to name our file. in either case,
 			 * refactor destfile to this newly derived name. */
-			if(!payload->destfile_name || strcmp(effective_filename,
+			if(!payload->destfile_name || strcmp(effective_filename_unescaped,
 						strrchr(payload->destfile_name, '/') + 1) != 0) {
 				free(payload->destfile_name);
-				payload->destfile_name = get_fullpath(localpath, effective_filename, "");
+				payload->destfile_name = get_fullpath(localpath, effective_filename_unescaped, "");
 			}
+
+			curl_free(effective_filename_unescaped);
 		}
 	}
 

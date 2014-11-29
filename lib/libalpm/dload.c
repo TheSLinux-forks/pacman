@@ -305,8 +305,8 @@ static void curl_set_handle_opts(struct dload_payload *payload,
 
 	free(d_base_url);
 	free(d_dir_url);
-	free(base_url_escaped);
-	curl_free(url_escaped);
+	free(url_escaped);
+	curl_free(base_url_escaped);
 
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);

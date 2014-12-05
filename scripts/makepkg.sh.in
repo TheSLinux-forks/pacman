@@ -2621,6 +2621,14 @@ MAKEPKG_CONF=${MAKEPKG_CONF:-$confdir/makepkg.conf}
 # Source the config file; fail if it is not found
 if [[ -r $MAKEPKG_CONF ]]; then
 	source_safe "$MAKEPKG_CONF"
+	if [[ -n "${_FEATURE_STRING}" && -r "$MAKEPKG_CONF${_FEATURE_STRING}" ]]; then
+		source "$MAKEPKG_CONF${_FEATURE_STRING}" \
+		|| {
+			error "$(gettext "%s not found.")" "$MAKEPKG_CONF${_FEATURE_STRING}"
+			plain "$(gettext "Aborting...")"
+			exit 1
+		}
+	fi
 else
 	error "$(gettext "%s not found.")" "$MAKEPKG_CONF"
 	plain "$(gettext "Aborting...")"

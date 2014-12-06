@@ -2633,10 +2633,10 @@ if [[ $MAKEPKG_CONF = "$confdir/makepkg.conf" && -r ~/.makepkg.conf ]]; then
 	source_safe ~/.makepkg.conf
 fi
 
-if [[ -n "${_FEATURE_STRING}" && -r "makepkg.conf${_FEATURE_STRING}" ]]; then
-	source "makepkg.conf${_FEATURE_STRING}" \
+if [[ -n "${_FEATURE_STRING}" && -r "$MAKEPKG_CONF${_FEATURE_STRING}" ]]; then
+	source "$MAKEPKG_CONF${_FEATURE_STRING}" \
 	|| {
-		error "$(gettext "%s not found.")" "makepkg.conf${_FEATURE_STRING}"
+		error "$(gettext "%s not found.")" "$MAKEPKG_CONF${_FEATURE_STRING}"
 		plain "$(gettext "Aborting...")"
 		exit 1
 	}

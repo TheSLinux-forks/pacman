@@ -1,7 +1,7 @@
 /*
  *  check.h
  *
- *  Copyright (c) 2012-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2012-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,4 +27,4 @@ int check_pkg_full(alpm_pkg_t *pkg);
 
 #endif /* _PM_CHECK_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

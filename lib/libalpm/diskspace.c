@@ -1,7 +1,7 @@
 /*
  *  diskspace.c
  *
- *  Copyright (c) 2010-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2010-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -84,6 +84,9 @@ static int mount_point_load_fsinfo(alpm_handle_t *handle, alpm_mountpoint_t *mou
 	_alpm_log(handle, ALPM_LOG_DEBUG, "loading fsinfo for %s\n", mountpoint->mount_dir);
 	mountpoint->read_only = mountpoint->fsp.f_flag & ST_RDONLY;
 	mountpoint->fsinfo_loaded = MOUNT_FSINFO_LOADED;
+#else
+	(void)handle;
+	(void)mountpoint;
 #endif
 
 	return 0;
@@ -109,7 +112,7 @@ static alpm_list_t *mount_point_list(alpm_handle_t *handle)
 
 	while((mnt = getmntent(fp))) {
 		CALLOC(mp, 1, sizeof(alpm_mountpoint_t), RET_ERR(handle, ALPM_ERR_MEMORY, NULL));
-		mp->mount_dir = strdup(mnt->mnt_dir);
+		STRDUP(mp->mount_dir, mnt->mnt_dir, RET_ERR(handle, ALPM_ERR_MEMORY, NULL));
 		mp->mount_dir_len = strlen(mp->mount_dir);
 
 		mount_points = alpm_list_add(mount_points, mp);
@@ -132,7 +135,7 @@ static alpm_list_t *mount_point_list(alpm_handle_t *handle)
 
 	while((ret = getmntent(fp, &mnt)) == 0) {
 		CALLOC(mp, 1, sizeof(alpm_mountpoint_t), RET_ERR(handle, ALPM_ERR_MEMORY, NULL));
-		mp->mount_dir = strdup(mnt->mnt_mountp);
+		STRDUP(mp->mount_dir, mnt->mnt_mountp,  RET_ERR(handle, ALPM_ERR_MEMORY, NULL));
 		mp->mount_dir_len = strlen(mp->mount_dir);
 
 		mount_points = alpm_list_add(mount_points, mp);
@@ -159,7 +162,7 @@ static alpm_list_t *mount_point_list(alpm_handle_t *handle)
 
 	for(; entries-- > 0; fsp++) {
 		CALLOC(mp, 1, sizeof(alpm_mountpoint_t), RET_ERR(handle, ALPM_ERR_MEMORY, NULL));
-		mp->mount_dir = strdup(fsp->f_mntonname);
+		STRDUP(mp->mount_dir, fsp->f_mntonname, RET_ERR(handle, ALPM_ERR_MEMORY, NULL));
 		mp->mount_dir_len = strlen(mp->mount_dir);
 		memcpy(&(mp->fsp), fsp, sizeof(FSSTATSTYPE));
 #if defined(HAVE_GETMNTINFO_STATVFS) && defined(HAVE_STRUCT_STATVFS_F_FLAG)
@@ -232,7 +235,7 @@ static int calculate_removed_size(alpm_handle_t *handle,
 		const char *filename = file->name;
 
 		snprintf(path, PATH_MAX, "%s%s", handle->root, filename);
-		_alpm_lstat(path, &st);
+		llstat(path, &st);
 
 		/* skip directories and symlinks to be consistent with libarchive that
 		 * reports them to be zero size */
@@ -357,7 +360,7 @@ int _alpm_check_downloadspace(alpm_handle_t *handle, const char *cachedir,
 	size_t j;
 	int error = 0;
 
-	/* resolve the cachedir path to ensure we check the right mountpoint.  We
+	/* resolve the cachedir path to ensure we check the right mountpoint. We
 	 * handle failures silently, and continue to use the possibly unresolved
 	 * path. */
 	if(realpath(cachedir, resolved_cachedir) != NULL) {
@@ -491,4 +494,4 @@ finish:
 	return 0;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

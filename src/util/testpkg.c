@@ -1,6 +1,7 @@
 /*
  *  testpkg.c : Test a pacman package for validity
  *
+ *  Copyright (c) 2007-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2007 by Aaron Griffin <aaronmgriffin@gmail.com>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,8 +22,6 @@
 #include <stdarg.h> /* va_list */
 
 #include <alpm.h>
-
-#define BASENAME "testpkg"
 
 __attribute__((format(printf, 2, 0)))
 static void output_cb(alpm_loglevel_t level, const char *fmt, va_list args)
@@ -47,7 +46,9 @@ int main(int argc, char *argv[])
 	const alpm_siglevel_t level = ALPM_SIG_PACKAGE | ALPM_SIG_PACKAGE_OPTIONAL;
 
 	if(argc != 2) {
-		fprintf(stderr, "usage: %s <package file>\n", BASENAME);
+		fprintf(stderr, "testpkg (pacman) v" PACKAGE_VERSION "\n\n"
+			"Test a pacman package for validity.\n\n"
+			"Usage: testpkg <package file>\n");
 		return 1;
 	}
 

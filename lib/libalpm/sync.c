@@ -1,7 +1,7 @@
 /*
  *  sync.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -60,7 +60,12 @@ alpm_pkg_t SYMEXPORT *alpm_sync_newversion(alpm_pkg_t *pkg, alpm_list_t *dbs_syn
 	pkg->handle->pm_errno = 0;
 
 	for(i = dbs_sync; !spkg && i; i = i->next) {
-		spkg = _alpm_db_get_pkgfromcache(i->data, pkg->name);
+		alpm_db_t *db = i->data;
+		if(!(db->usage & ALPM_DB_USAGE_SEARCH)) {
+			continue;
+		}
+
+		spkg = _alpm_db_get_pkgfromcache(db, pkg->name);
 	}
 
 	if(spkg == NULL) {
@@ -88,8 +93,8 @@ static int check_literal(alpm_handle_t *handle, alpm_pkg_t *lpkg,
 		_alpm_log(handle, ALPM_LOG_DEBUG, "new version of '%s' found (%s => %s)\n",
 				lpkg->name, lpkg->version, spkg->version);
 		/* check IgnorePkg/IgnoreGroup */
-		if(_alpm_pkg_should_ignore(handle, spkg)
-				|| _alpm_pkg_should_ignore(handle, lpkg)) {
+		if(alpm_pkg_should_ignore(handle, spkg)
+				|| alpm_pkg_should_ignore(handle, lpkg)) {
 			_alpm_log(handle, ALPM_LOG_WARNING, _("%s: ignoring package upgrade (%s => %s)\n"),
 					lpkg->name, lpkg->version, spkg->version);
 		} else {
@@ -100,8 +105,8 @@ static int check_literal(alpm_handle_t *handle, alpm_pkg_t *lpkg,
 	} else if(cmp < 0) {
 		if(enable_downgrade) {
 			/* check IgnorePkg/IgnoreGroup */
-			if(_alpm_pkg_should_ignore(handle, spkg)
-					|| _alpm_pkg_should_ignore(handle, lpkg)) {
+			if(alpm_pkg_should_ignore(handle, spkg)
+					|| alpm_pkg_should_ignore(handle, lpkg)) {
 				_alpm_log(handle, ALPM_LOG_WARNING, _("%s: ignoring package downgrade (%s => %s)\n"),
 						lpkg->name, lpkg->version, spkg->version);
 			} else {
@@ -140,20 +145,25 @@ static alpm_list_t *check_replacers(alpm_handle_t *handle, alpm_pkg_t *lpkg,
 			}
 		}
 		if(found) {
-			int doreplace = 0;
+			alpm_question_replace_t question = {
+				.type = ALPM_QUESTION_REPLACE_PKG,
+				.replace = 0,
+				.oldpkg = lpkg,
+				.newpkg = spkg,
+				.newdb = sdb
+			};
 			alpm_pkg_t *tpkg;
 			/* check IgnorePkg/IgnoreGroup */
-			if(_alpm_pkg_should_ignore(handle, spkg)
-					|| _alpm_pkg_should_ignore(handle, lpkg)) {
+			if(alpm_pkg_should_ignore(handle, spkg)
+					|| alpm_pkg_should_ignore(handle, lpkg)) {
 				_alpm_log(handle, ALPM_LOG_WARNING,
 						_("ignoring package replacement (%s-%s => %s-%s)\n"),
 						lpkg->name, lpkg->version, spkg->name, spkg->version);
 				continue;
 			}
 
-			QUESTION(handle, ALPM_QUESTION_REPLACE_PKG, lpkg, spkg,
-					sdb->treename, &doreplace);
-			if(!doreplace) {
+			QUESTION(handle, &question);
+			if(!question.replace) {
 				continue;
 			}
 
@@ -204,6 +214,11 @@ int SYMEXPORT alpm_sync_sysupgrade(alpm_handle_t *handle, int enable_downgrade)
 	for(i = _alpm_db_get_pkgcache(handle->db_local); i; i = i->next) {
 		alpm_pkg_t *lpkg = i->data;
 
+		if(alpm_pkg_find(trans->remove, lpkg->name)) {
+			_alpm_log(handle, ALPM_LOG_DEBUG, "%s is marked for removal -- skipping\n", lpkg->name);
+			continue;
+		}
+
 		if(alpm_pkg_find(trans->add, lpkg->name)) {
 			_alpm_log(handle, ALPM_LOG_DEBUG, "%s is already in the target list -- skipping\n", lpkg->name);
 			continue;
@@ -212,8 +227,14 @@ int SYMEXPORT alpm_sync_sysupgrade(alpm_handle_t *handle, int enable_downgrade)
 		/* Search for replacers then literal (if no replacer) in each sync database. */
 		for(j = handle->dbs_sync; j; j = j->next) {
 			alpm_db_t *sdb = j->data;
-			alpm_list_t *replacers = check_replacers(handle, lpkg, sdb);
+			alpm_list_t *replacers;
+
+			if(!(sdb->usage & ALPM_DB_USAGE_UPGRADE)) {
+				continue;
+			}
+
 			/* Check sdb */
+			replacers = check_replacers(handle, lpkg, sdb);
 			if(replacers) {
 				trans->add = alpm_list_join(trans->add, replacers);
 				/* jump to next local package */
@@ -259,12 +280,15 @@ alpm_list_t SYMEXPORT *alpm_find_group_pkgs(alpm_list_t *dbs,
 			if(alpm_pkg_find(ignorelist, pkg->name)) {
 				continue;
 			}
-			if(_alpm_pkg_should_ignore(db->handle, pkg)) {
+			if(alpm_pkg_should_ignore(db->handle, pkg)) {
+				alpm_question_install_ignorepkg_t question = {
+					.type = ALPM_QUESTION_INSTALL_IGNOREPKG,
+					.install = 0,
+					.pkg = pkg
+				};
 				ignorelist = alpm_list_add(ignorelist, pkg);
-				int install = 0;
-				QUESTION(db->handle, ALPM_QUESTION_INSTALL_IGNOREPKG, pkg,
-						NULL, NULL, &install);
-				if(!install)
+				QUESTION(db->handle, &question);
+				if(!question.install)
 					continue;
 			}
 			if(!alpm_pkg_find(pkgs, pkg->name)) {
@@ -355,9 +379,10 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 	alpm_list_t *i, *j;
 	alpm_list_t *deps = NULL;
 	alpm_list_t *unresolvable = NULL;
-	size_t from_sync = 0;
+	int from_sync = 0;
 	int ret = 0;
 	alpm_trans_t *trans = handle->trans;
+	alpm_event_t event;
 
 	if(data) {
 		*data = NULL;
@@ -365,7 +390,10 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 
 	for(i = trans->add; i; i = i->next) {
 		alpm_pkg_t *spkg = i->data;
-		from_sync += (spkg->origin == ALPM_PKG_FROM_SYNCDB);
+		if (spkg->origin == ALPM_PKG_FROM_SYNCDB){
+			from_sync = 1;
+			break;
+		}
 	}
 
 	/* ensure all sync database are valid if we will be using them */
@@ -387,7 +415,8 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 
 		/* Build up list by repeatedly resolving each transaction package */
 		/* Resolve targets dependencies */
-		EVENT(handle, ALPM_EVENT_RESOLVEDEPS_START, NULL, NULL);
+		event.type = ALPM_EVENT_RESOLVEDEPS_START;
+		EVENT(handle, &event);
 		_alpm_log(handle, ALPM_LOG_DEBUG, "resolving target's dependencies\n");
 
 		/* build remove list for resolvedeps */
@@ -395,8 +424,6 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 			alpm_pkg_t *spkg = i->data;
 			for(j = spkg->removes; j; j = j->next) {
 				remove = alpm_list_add(remove, j->data);
-				/* do not re-install a (replaced) package even if an update is available */
-				trans->add = alpm_list_remove(trans->add, j->data, _alpm_pkg_cmp, NULL);
 			}
 		}
 
@@ -422,25 +449,29 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 		/* If there were unresolvable top-level packages, prompt the user to
 		   see if they'd like to ignore them rather than failing the sync */
 		if(unresolvable != NULL) {
-			int remove_unresolvable = 0;
-			alpm_errno_t saved_err = handle->pm_errno;
-			QUESTION(handle, ALPM_QUESTION_REMOVE_PKGS, unresolvable,
-					NULL, NULL, &remove_unresolvable);
-			if(remove_unresolvable) {
+			alpm_question_remove_pkgs_t question = {
+				.type = ALPM_QUESTION_REMOVE_PKGS,
+				.skip = 0,
+				.packages = unresolvable
+			};
+			QUESTION(handle, &question);
+			if(question.skip) {
 				/* User wants to remove the unresolvable packages from the
 				   transaction. The packages will be removed from the actual
 				   transaction when the transaction packages are replaced with a
 				   dependency-reordered list below */
 				handle->pm_errno = 0;
 				if(data) {
-					alpm_list_free_inner(*data, (alpm_list_fn_free)_alpm_depmiss_free);
+					alpm_list_free_inner(*data,
+							(alpm_list_fn_free)alpm_depmissing_free);
 					alpm_list_free(*data);
 					*data = NULL;
 				}
 			} else {
 				/* pm_errno was set by resolvedeps, callback may have overwrote it */
-				handle->pm_errno = saved_err;
+				handle->pm_errno = ALPM_ERR_UNSATISFIED_DEPS;
 				alpm_list_free(resolved);
+				alpm_list_free(unresolvable);
 				ret = -1;
 				goto cleanup;
 			}
@@ -460,17 +491,17 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 		 * holds to package objects. */
 		trans->unresolvable = unresolvable;
 
-		/* re-order w.r.t. dependencies */
 		alpm_list_free(trans->add);
-		trans->add = _alpm_sortbydeps(handle, resolved, 0);
-		alpm_list_free(resolved);
+		trans->add = resolved;
 
-		EVENT(handle, ALPM_EVENT_RESOLVEDEPS_DONE, NULL, NULL);
+		event.type = ALPM_EVENT_RESOLVEDEPS_DONE;
+		EVENT(handle, &event);
 	}
 
 	if(!(trans->flags & ALPM_TRANS_FLAG_NOCONFLICTS)) {
 		/* check for inter-conflicts and whatnot */
-		EVENT(handle, ALPM_EVENT_INTERCONFLICTS_START, NULL, NULL);
+		event.type = ALPM_EVENT_INTERCONFLICTS_START;
+		EVENT(handle, &event);
 
 		_alpm_log(handle, ALPM_LOG_DEBUG, "looking for conflicts\n");
 
@@ -493,8 +524,8 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 					conflict->package1, conflict->package2);
 
 			/* if sync1 provides sync2, we remove sync2 from the targets, and vice versa */
-			alpm_depend_t *dep1 = _alpm_splitdep(conflict->package1);
-			alpm_depend_t *dep2 = _alpm_splitdep(conflict->package2);
+			alpm_depend_t *dep1 = alpm_dep_from_string(conflict->package1);
+			alpm_depend_t *dep2 = alpm_dep_from_string(conflict->package2);
 			if(_alpm_depcmp(sync1, dep2)) {
 				rsync = sync2;
 				sync = sync1;
@@ -511,14 +542,14 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 						*data = alpm_list_add(*data, newconflict);
 					}
 				}
-				alpm_list_free_inner(deps, (alpm_list_fn_free)_alpm_conflict_free);
+				alpm_list_free_inner(deps, (alpm_list_fn_free)alpm_conflict_free);
 				alpm_list_free(deps);
-				_alpm_dep_free(dep1);
-				_alpm_dep_free(dep2);
+				alpm_dep_free(dep1);
+				alpm_dep_free(dep2);
 				goto cleanup;
 			}
-			_alpm_dep_free(dep1);
-			_alpm_dep_free(dep2);
+			alpm_dep_free(dep1);
+			alpm_dep_free(dep2);
 
 			/* Prints warning */
 			_alpm_log(handle, ALPM_LOG_WARNING,
@@ -527,10 +558,9 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 			trans->add = alpm_list_remove(trans->add, rsync, _alpm_pkg_cmp, NULL);
 			/* rsync is not a transaction target anymore */
 			trans->unresolvable = alpm_list_add(trans->unresolvable, rsync);
-			continue;
 		}
 
-		alpm_list_free_inner(deps, (alpm_list_fn_free)_alpm_conflict_free);
+		alpm_list_free_inner(deps, (alpm_list_fn_free)alpm_conflict_free);
 		alpm_list_free(deps);
 		deps = NULL;
 
@@ -539,12 +569,19 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 		deps = _alpm_outerconflicts(handle->db_local, trans->add);
 
 		for(i = deps; i; i = i->next) {
+			alpm_question_conflict_t question = {
+				.type = ALPM_QUESTION_CONFLICT_PKG,
+				.remove = 0,
+				.conflict = i->data
+			};
 			alpm_conflict_t *conflict = i->data;
-			int doremove = 0;
 			int found = 0;
 
 			/* if conflict->package2 (the local package) is not elected for removal,
 			   we ask the user */
+			if(alpm_pkg_find(trans->remove, conflict->package2)) {
+				found = 1;
+			}
 			for(j = trans->add; j && !found; j = j->next) {
 				alpm_pkg_t *spkg = j->data;
 				if(alpm_pkg_find(spkg->removes, conflict->package2)) {
@@ -558,9 +595,8 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 			_alpm_log(handle, ALPM_LOG_DEBUG, "package '%s' conflicts with '%s'\n",
 					conflict->package1, conflict->package2);
 
-			QUESTION(handle, ALPM_QUESTION_CONFLICT_PKG, conflict->package1,
-							conflict->package2, conflict->reason->name, &doremove);
-			if(doremove) {
+			QUESTION(handle, &question);
+			if(question.remove) {
 				/* append to the removes list */
 				alpm_pkg_t *sync = alpm_pkg_find(trans->add, conflict->package1);
 				alpm_pkg_t *local = _alpm_db_get_pkgfromcache(handle->db_local, conflict->package2);
@@ -576,13 +612,14 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 						*data = alpm_list_add(*data, newconflict);
 					}
 				}
-				alpm_list_free_inner(deps, (alpm_list_fn_free)_alpm_conflict_free);
+				alpm_list_free_inner(deps, (alpm_list_fn_free)alpm_conflict_free);
 				alpm_list_free(deps);
 				goto cleanup;
 			}
 		}
-		EVENT(handle, ALPM_EVENT_INTERCONFLICTS_DONE, NULL, NULL);
-		alpm_list_free_inner(deps, (alpm_list_fn_free)_alpm_conflict_free);
+		event.type = ALPM_EVENT_INTERCONFLICTS_DONE;
+		EVENT(handle, &event);
+		alpm_list_free_inner(deps, (alpm_list_fn_free)alpm_conflict_free);
 		alpm_list_free(deps);
 	}
 
@@ -612,7 +649,8 @@ int _alpm_sync_prepare(alpm_handle_t *handle, alpm_list_t **data)
 			if(data) {
 				*data = deps;
 			} else {
-				alpm_list_free_inner(deps, (alpm_list_fn_free)_alpm_depmiss_free);
+				alpm_list_free_inner(deps,
+						(alpm_list_fn_free)alpm_depmissing_free);
 				alpm_list_free(deps);
 			}
 			goto cleanup;
@@ -662,9 +700,11 @@ static int endswith(const char *filename, const char *extension)
 static int apply_deltas(alpm_handle_t *handle)
 {
 	alpm_list_t *i;
-	int deltas_found = 0, ret = 0;
+	size_t deltas_found = 0;
+	int ret = 0;
 	const char *cachedir = _alpm_filecache_setup(handle);
 	alpm_trans_t *trans = handle->trans;
+	alpm_event_delta_patch_t event;
 
 	for(i = trans->add; i; i = i->next) {
 		alpm_pkg_t *spkg = i->data;
@@ -678,7 +718,8 @@ static int apply_deltas(alpm_handle_t *handle)
 		if(!deltas_found) {
 			/* only show this if we actually have deltas to apply, and it is before
 			 * the very first one */
-			EVENT(handle, ALPM_EVENT_DELTA_PATCHES_START, NULL, NULL);
+			event.type = ALPM_EVENT_DELTA_PATCHES_START;
+			EVENT(handle, &event);
 			deltas_found = 1;
 		}
 
@@ -712,11 +753,14 @@ static int apply_deltas(alpm_handle_t *handle)
 
 			_alpm_log(handle, ALPM_LOG_DEBUG, "command: %s\n", command);
 
-			EVENT(handle, ALPM_EVENT_DELTA_PATCH_START, d->to, d->delta);
+			event.type = ALPM_EVENT_DELTA_PATCH_START;
+			event.delta = d;
+			EVENT(handle, &event);
 
 			int retval = system(command);
 			if(retval == 0) {
-				EVENT(handle, ALPM_EVENT_DELTA_PATCH_DONE, NULL, NULL);
+				event.type = ALPM_EVENT_DELTA_PATCH_DONE;
+				EVENT(handle, &event);
 
 				/* delete the delta file */
 				unlink(delta);
@@ -734,7 +778,8 @@ static int apply_deltas(alpm_handle_t *handle)
 
 			if(retval != 0) {
 				/* one delta failed for this package, cancel the remaining ones */
-				EVENT(handle, ALPM_EVENT_DELTA_PATCH_FAILED, NULL, NULL);
+				event.type = ALPM_EVENT_DELTA_PATCH_FAILED;
+				EVENT(handle, &event);
 				handle->pm_errno = ALPM_ERR_DLT_PATCHFAILED;
 				ret = 1;
 				break;
@@ -742,7 +787,8 @@ static int apply_deltas(alpm_handle_t *handle)
 		}
 	}
 	if(deltas_found) {
-		EVENT(handle, ALPM_EVENT_DELTA_PATCHES_DONE, NULL, NULL);
+		event.type = ALPM_EVENT_DELTA_PATCHES_DONE;
+		EVENT(handle, &event);
 	}
 
 	return ret;
@@ -759,25 +805,31 @@ static int apply_deltas(alpm_handle_t *handle)
 static int prompt_to_delete(alpm_handle_t *handle, const char *filepath,
 		alpm_errno_t reason)
 {
-	int doremove = 0;
-	QUESTION(handle, ALPM_QUESTION_CORRUPTED_PKG, (char *)filepath,
-			&reason, NULL, &doremove);
-	if(doremove) {
+	alpm_question_corrupted_t question = {
+		.type = ALPM_QUESTION_CORRUPTED_PKG,
+		.remove = 0,
+		.filepath = filepath,
+		.reason = reason
+	};
+	QUESTION(handle, &question);
+	if(question.remove) {
 		unlink(filepath);
 	}
-	return doremove;
+	return question.remove;
 }
 
 static int validate_deltas(alpm_handle_t *handle, alpm_list_t *deltas)
 {
 	alpm_list_t *i, *errors = NULL;
+	alpm_event_t event;
 
 	if(!deltas) {
 		return 0;
 	}
 
 	/* Check integrity of deltas */
-	EVENT(handle, ALPM_EVENT_DELTA_INTEGRITY_START, NULL, NULL);
+	event.type = ALPM_EVENT_DELTA_INTEGRITY_START;
+	EVENT(handle, &event);
 	for(i = deltas; i; i = i->next) {
 		alpm_delta_t *d = i->data;
 		char *filepath = _alpm_filecache_find(handle, d->delta);
@@ -788,7 +840,8 @@ static int validate_deltas(alpm_handle_t *handle, alpm_list_t *deltas)
 			FREE(filepath);
 		}
 	}
-	EVENT(handle, ALPM_EVENT_DELTA_INTEGRITY_DONE, NULL, NULL);
+	event.type = ALPM_EVENT_DELTA_INTEGRITY_DONE;
+	EVENT(handle, &event);
 
 	if(errors) {
 		for(i = errors; i; i = i->next) {
@@ -864,11 +917,16 @@ static int find_dl_candidates(alpm_db_t *repo, alpm_list_t **files, alpm_list_t 
 static int download_single_file(alpm_handle_t *handle, struct dload_payload *payload,
 		const char *cachedir)
 {
+	alpm_event_pkgdownload_t event = {
+		.type = ALPM_EVENT_PKGDOWNLOAD_START,
+		.file = payload->remote_name
+	};
 	const alpm_list_t *server;
 
 	payload->handle = handle;
 	payload->allow_resume = 1;
 
+	EVENT(handle, &event);
 	for(server = payload->servers; server; server = server->next) {
 		const char *server_url = server->data;
 		size_t len;
@@ -879,6 +937,8 @@ static int download_single_file(alpm_handle_t *handle, struct dload_payload *pay
 		snprintf(payload->fileurl, len, "%s/%s", server_url, payload->remote_name);
 
 		if(_alpm_download(payload, cachedir, NULL, NULL) != -1) {
+			event.type = ALPM_EVENT_PKGDOWNLOAD_DONE;
+			EVENT(handle, &event);
 			return 0;
 		}
 
@@ -886,6 +946,8 @@ static int download_single_file(alpm_handle_t *handle, struct dload_payload *pay
 		payload->unlink_on_fail = 0;
 	}
 
+	event.type = ALPM_EVENT_PKGDOWNLOAD_FAILED;
+	EVENT(handle, &event);
 	return -1;
 }
 
@@ -894,6 +956,7 @@ static int download_files(alpm_handle_t *handle, alpm_list_t **deltas)
 	const char *cachedir;
 	alpm_list_t *i, *files = NULL;
 	int errors = 0;
+	alpm_event_t event;
 
 	cachedir = _alpm_filecache_setup(handle);
 	handle->trans->state = STATE_DOWNLOADING;
@@ -941,13 +1004,17 @@ static int download_files(alpm_handle_t *handle, alpm_list_t **deltas)
 			}
 		}
 
-		EVENT(handle, ALPM_EVENT_RETRIEVE_START, NULL, NULL);
+		event.type = ALPM_EVENT_RETRIEVE_START;
+		EVENT(handle, &event);
+		event.type = ALPM_EVENT_RETRIEVE_DONE;
 		for(i = files; i; i = i->next) {
 			if(download_single_file(handle, i->data, cachedir) == -1) {
 				errors++;
+				event.type = ALPM_EVENT_RETRIEVE_FAILED;
 				_alpm_log(handle, ALPM_LOG_WARNING, _("failed to retrieve some files\n"));
 			}
 		}
+		EVENT(handle, &event);
 	}
 
 finish:
@@ -975,8 +1042,10 @@ static int check_keyring(alpm_handle_t *handle)
 {
 	size_t current = 0, numtargs;
 	alpm_list_t *i, *errors = NULL;
+	alpm_event_t event;
 
-	EVENT(handle, ALPM_EVENT_KEYRING_START, NULL, NULL);
+	event.type = ALPM_EVENT_KEYRING_START;
+	EVENT(handle, &event);
 
 	numtargs = alpm_list_count(handle->trans->add);
 
@@ -996,33 +1065,35 @@ static int check_keyring(alpm_handle_t *handle)
 		if((level & ALPM_SIG_PACKAGE) && pkg->base64_sig) {
 			unsigned char *decoded_sigdata = NULL;
 			size_t data_len;
-			int decode_ret = _alpm_decode_signature(pkg->base64_sig,
+			int decode_ret = alpm_decode_signature(pkg->base64_sig,
 					&decoded_sigdata, &data_len);
 			if(decode_ret == 0) {
 				alpm_list_t *keys = NULL;
-				if(_alpm_extract_keyid(handle, pkg->name, decoded_sigdata,
+				if(alpm_extract_keyid(handle, pkg->name, decoded_sigdata,
 							data_len, &keys) == 0) {
 					alpm_list_t *k;
 					for(k = keys; k; k = k->next) {
 						char *key = k->data;
-						if(_alpm_key_in_keychain(handle, key) == 0) {
-							if(!alpm_list_find_str(errors, key)) {
-								errors = alpm_list_add(errors, strdup(key));
-							}
+						if(!alpm_list_find_str(errors, key) &&
+								_alpm_key_in_keychain(handle, key) == 0) {
+							errors = alpm_list_add(errors, strdup(key));
 						}
 					}
 					FREELIST(keys);
 				}
+				free(decoded_sigdata);
 			}
 		}
 	}
 
 	PROGRESS(handle, ALPM_PROGRESS_KEYRING_START, "", 100,
 			numtargs, current);
-	EVENT(handle, ALPM_EVENT_KEYRING_DONE, NULL, NULL);
+	event.type = ALPM_EVENT_KEYRING_DONE;
+	EVENT(handle, &event);
 
 	if(errors) {
-		EVENT(handle, ALPM_EVENT_KEY_DOWNLOAD_START, NULL, NULL);
+		event.type = ALPM_EVENT_KEY_DOWNLOAD_START;
+		EVENT(handle, &event);
 		int fail = 0;
 		alpm_list_t *k;
 		for(k = errors; k; k = k->next) {
@@ -1031,7 +1102,8 @@ static int check_keyring(alpm_handle_t *handle)
 				fail = 1;
 			}
 		}
-		EVENT(handle, ALPM_EVENT_KEY_DOWNLOAD_DONE, NULL, NULL);
+		event.type = ALPM_EVENT_KEY_DOWNLOAD_DONE;
+		EVENT(handle, &event);
 		if(fail) {
 			_alpm_log(handle, ALPM_LOG_ERROR, _("required key missing from keyring\n"));
 			return -1;
@@ -1043,7 +1115,7 @@ static int check_keyring(alpm_handle_t *handle)
 #endif /* HAVE_LIBGPGME */
 
 static int check_validity(alpm_handle_t *handle,
-		size_t total, size_t total_bytes)
+		size_t total, uint64_t total_bytes)
 {
 	struct validity {
 		alpm_pkg_t *pkg;
@@ -1053,11 +1125,14 @@ static int check_validity(alpm_handle_t *handle,
 		alpm_pkgvalidation_t validation;
 		alpm_errno_t error;
 	};
-	size_t current = 0, current_bytes = 0;
+	size_t current = 0;
+	uint64_t current_bytes = 0;
 	alpm_list_t *i, *errors = NULL;
+	alpm_event_t event;
 
 	/* Check integrity of packages */
-	EVENT(handle, ALPM_EVENT_INTEGRITY_START, NULL, NULL);
+	event.type = ALPM_EVENT_INTEGRITY_START;
+	EVENT(handle, &event);
 
 	for(i = handle->trans->add; i; i = i->next, current++) {
 		struct validity v = { i->data, NULL, NULL, 0, 0, 0 };
@@ -1075,8 +1150,9 @@ static int check_validity(alpm_handle_t *handle,
 
 		if(_alpm_pkg_validate_internal(handle, v.path, v.pkg,
 					v.level, &v.siglist, &v.validation) == -1) {
+			struct validity *invalid;
 			v.error = handle->pm_errno;
-			struct validity *invalid = malloc(sizeof(struct validity));
+			MALLOC(invalid, sizeof(struct validity), return -1);
 			memcpy(invalid, &v, sizeof(struct validity));
 			errors = alpm_list_add(errors, invalid);
 		} else {
@@ -1089,12 +1165,16 @@ static int check_validity(alpm_handle_t *handle,
 
 	PROGRESS(handle, ALPM_PROGRESS_INTEGRITY_START, "", 100,
 			total, current);
-	EVENT(handle, ALPM_EVENT_INTEGRITY_DONE, NULL, NULL);
+	event.type = ALPM_EVENT_INTEGRITY_DONE;
+	EVENT(handle, &event);
 
 	if(errors) {
 		for(i = errors; i; i = i->next) {
 			struct validity *v = i->data;
-			if(v->error == ALPM_ERR_PKG_INVALID_SIG) {
+			if(v->error == ALPM_ERR_PKG_MISSING_SIG) {
+				_alpm_log(handle, ALPM_LOG_ERROR,
+						_("%s: missing required signature\n"), v->pkg->name);
+			} else if(v->error == ALPM_ERR_PKG_INVALID_SIG) {
 				_alpm_process_siglist(handle, v->pkg->name, v->siglist,
 						v->level & ALPM_SIG_PACKAGE_OPTIONAL,
 						v->level & ALPM_SIG_PACKAGE_MARGINAL_OK,
@@ -1125,9 +1205,11 @@ static int load_packages(alpm_handle_t *handle, alpm_list_t **data,
 	size_t current = 0, current_bytes = 0;
 	int errors = 0;
 	alpm_list_t *i;
+	alpm_event_t event;
 
 	/* load packages from disk now that they are known-valid */
-	EVENT(handle, ALPM_EVENT_LOAD_START, NULL, NULL);
+	event.type = ALPM_EVENT_LOAD_START;
+	EVENT(handle, &event);
 
 	for(i = handle->trans->add; i; i = i->next, current++) {
 		alpm_pkg_t *spkg = i->data;
@@ -1168,7 +1250,8 @@ static int load_packages(alpm_handle_t *handle, alpm_list_t **data,
 
 	PROGRESS(handle, ALPM_PROGRESS_LOAD_START, "", 100,
 			total, current);
-	EVENT(handle, ALPM_EVENT_LOAD_DONE, NULL, NULL);
+	event.type = ALPM_EVENT_LOAD_DONE;
+	EVENT(handle, &event);
 
 	if(errors) {
 		if(!handle->pm_errno) {
@@ -1180,10 +1263,11 @@ static int load_packages(alpm_handle_t *handle, alpm_list_t **data,
 	return 0;
 }
 
-int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
+int _alpm_sync_load(alpm_handle_t *handle, alpm_list_t **data)
 {
 	alpm_list_t *i, *deltas = NULL;
-	size_t total = 0, total_bytes = 0;
+	size_t total = 0;
+	uint64_t total_bytes = 0;
 	alpm_trans_t *trans = handle->trans;
 
 	if(download_files(handle, &deltas)) {
@@ -1202,7 +1286,7 @@ int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
 		return -1;
 	}
 
-#if HAVE_LIBGPGME
+#ifdef HAVE_LIBGPGME
 	/* make sure all required signatures are in keyring */
 	if(check_keyring(handle)) {
 		return -1;
@@ -1221,14 +1305,8 @@ int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
 	/* this can only happen maliciously */
 	total_bytes = total_bytes ? total_bytes : 1;
 
-	/* this one is special: -1 is failure, 1 is retry, 0 is success */
-	while(1) {
-		int ret = check_validity(handle, total, total_bytes);
-		if(ret == 0) {
-			break;
-		} else if(ret < 0) {
-			return -1;
-		}
+	if(check_validity(handle, total, total_bytes) != 0) {
+		return -1;
 	}
 
 	if(trans->flags & ALPM_TRANS_FLAG_DOWNLOADONLY) {
@@ -1239,11 +1317,18 @@ int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
 		return -1;
 	}
 
-	trans->state = STATE_COMMITING;
+	return 0;
+}
+
+int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
+{
+	alpm_trans_t *trans = handle->trans;
+	alpm_event_t event;
 
 	/* fileconflict check */
 	if(!(trans->flags & ALPM_TRANS_FLAG_DBONLY)) {
-		EVENT(handle, ALPM_EVENT_FILECONFLICTS_START, NULL, NULL);
+		event.type = ALPM_EVENT_FILECONFLICTS_START;
+		EVENT(handle, &event);
 
 		_alpm_log(handle, ALPM_LOG_DEBUG, "looking for file conflicts\n");
 		alpm_list_t *conflict = _alpm_db_find_fileconflicts(handle,
@@ -1252,18 +1337,20 @@ int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
 			if(data) {
 				*data = conflict;
 			} else {
-				alpm_list_free_inner(conflict, (alpm_list_fn_free)_alpm_fileconflict_free);
+				alpm_list_free_inner(conflict, (alpm_list_fn_free)alpm_fileconflict_free);
 				alpm_list_free(conflict);
 			}
 			RET_ERR(handle, ALPM_ERR_FILE_CONFLICTS, -1);
 		}
 
-		EVENT(handle, ALPM_EVENT_FILECONFLICTS_DONE, NULL, NULL);
+		event.type = ALPM_EVENT_FILECONFLICTS_DONE;
+		EVENT(handle, &event);
 	}
 
 	/* check available disk space */
 	if(handle->checkspace && !(trans->flags & ALPM_TRANS_FLAG_DBONLY)) {
-		EVENT(handle, ALPM_EVENT_DISKSPACE_START, NULL, NULL);
+		event.type = ALPM_EVENT_DISKSPACE_START;
+		EVENT(handle, &event);
 
 		_alpm_log(handle, ALPM_LOG_DEBUG, "checking available disk space\n");
 		if(_alpm_check_diskspace(handle) == -1) {
@@ -1271,7 +1358,8 @@ int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
 			return -1;
 		}
 
-		EVENT(handle, ALPM_EVENT_DISKSPACE_DONE, NULL, NULL);
+		event.type = ALPM_EVENT_DISKSPACE_DONE;
+		EVENT(handle, &event);
 	}
 
 	/* remove conflicting and to-be-replaced packages */
@@ -1294,4 +1382,4 @@ int _alpm_sync_commit(alpm_handle_t *handle, alpm_list_t **data)
 	return 0;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

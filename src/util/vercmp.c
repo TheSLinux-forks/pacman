@@ -1,7 +1,8 @@
 /*
- *  vercmp.c
+ *  vercmp.c - Compare package version numbers using pacman's version
+ *      comparison logic
  *
- *  Copyright (c) 2006-2011 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2005 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -22,19 +23,19 @@
 #include <stdio.h> /* printf */
 #include <string.h>
 
-#define BASENAME "vercmp"
-
 /* forward declaration, comes from version.o in libalpm source that is linked
  * in directly so we don't have any library deps */
 int alpm_pkg_vercmp(const char *a, const char *b);
 
 static void usage(void)
 {
-	fprintf(stderr, "usage: %s <ver1> <ver2>\n\n", BASENAME);
-	fprintf(stderr, "output values:\n");
-	fprintf(stderr, "  < 0 : if ver1 < ver2\n");
-	fprintf(stderr, "    0 : if ver1 == ver2\n");
-	fprintf(stderr, "  > 0 : if ver1 > ver2\n");
+	fprintf(stderr, "vercmp (pacman) v" PACKAGE_VERSION "\n\n"
+		"Compare package version numbers using pacman's version comparison logic.\n\n"
+		"Usage: vercmp <ver1> <ver2>\n\n"
+		"Output values:\n"
+		"  < 0 : if ver1 < ver2\n"
+		"    0 : if ver1 == ver2\n"
+		"  > 0 : if ver1 > ver2\n");
 }
 
 int main(int argc, char *argv[])

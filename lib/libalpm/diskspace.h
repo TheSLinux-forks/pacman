@@ -1,7 +1,7 @@
 /*
  *  diskspace.h
  *
- *  Copyright (c) 2010-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2010-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -62,4 +62,4 @@ int _alpm_check_downloadspace(alpm_handle_t *handle, const char *cachedir,
 
 #endif /* _ALPM_DISKSPACE_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

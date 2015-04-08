@@ -17,6 +17,7 @@ groups=()
 depends=()
 makedepends=()
 checkdepends=()
+optdepends=()
 provides=()
 conflicts=()
 replaces=()
@@ -24,18 +25,25 @@ backup=()
 options=()
 install=
 changelog=
-source=($pkgbase-$pkgver.tar.gz)
+source=("$pkgbase-$pkgver.tar.gz"
+        "$pkgname-$pkgver.patch")
 noextract=()
-md5sums=() #generate with 'makepkg -g'
+md5sums=()
+validpgpkeys=()
+
+prepare() {
+	cd "$pkgname-$pkgver"
+	patch -p1 -i "$srcdir/$pkgname-$pkgver.patch"
+}
 
 build() {
-	cd "$srcdir/$pkgbase-$pkgver"
+	cd "$pkgbase-$pkgver"
 	./configure --prefix=/usr
 	make
 }
 
 check() {
-	cd "$srcdir/$pkgname-$pkgver"
+	cd "$pkgname-$pkgver"
 	make -k check
 }
 
@@ -59,7 +67,7 @@ package_pkg1() {
 	install=
 	changelog=
 
-	cd "$srcdir/$pkgbase-$pkgver"
+	cd "$pkgbase-$pkgver"
 	make DESTDIR="$pkgdir/" install-pkg1
 }
 
@@ -67,6 +75,6 @@ package_pkg2() {
 	# options and directives overrides
 	pkgdesc=""
 
-	cd "$srcdir/$pkgbase-$pkgver"
+	cd "$pkgbase-$pkgver"
 	make DESTDIR="$pkgdir/" install-pkg2
 }

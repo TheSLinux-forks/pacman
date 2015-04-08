@@ -1,7 +1,7 @@
 /*
  *  handle.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -31,16 +31,16 @@
 #include <curl/curl.h>
 #endif
 
-#define EVENT(h, e, d1, d2) \
+#define EVENT(h, e) \
 do { \
 	if((h)->eventcb) { \
-		(h)->eventcb(e, d1, d2); \
+		(h)->eventcb((alpm_event_t *) (e)); \
 	} \
 } while(0)
-#define QUESTION(h, q, d1, d2, d3, r) \
+#define QUESTION(h, q) \
 do { \
 	if((h)->questioncb) { \
-		(h)->questioncb(q, d1, d2, d3, r); \
+		(h)->questioncb((alpm_question_t *) (q)); \
 	} \
 } while(0)
 #define PROGRESS(h, e, p, per, n, r) \
@@ -52,10 +52,9 @@ do { \
 
 struct __alpm_handle_t {
 	/* internal usage */
-	alpm_db_t *db_local;       /* local db pointer */
+	alpm_db_t *db_local;    /* local db pointer */
 	alpm_list_t *dbs_sync;  /* List of (alpm_db_t *) */
 	FILE *logstream;        /* log file stream pointer */
-	FILE *lckstream;        /* lock file stream pointer if one exists */
 	alpm_trans_t *trans;
 
 #ifdef HAVE_LIBCURL
@@ -63,11 +62,15 @@ struct __alpm_handle_t {
 	CURL *curl;             /* reusable curl_easy handle */
 #endif
 
+#ifdef HAVE_LIBGPGME
+	alpm_list_t *known_keys;  /* keys verified to be in our keychain */
+#endif
+
 	/* callback functions */
-	alpm_cb_log logcb;      /* Log callback function */
-	alpm_cb_download dlcb;  /* Download callback function */
+	alpm_cb_log logcb;          /* Log callback function */
+	alpm_cb_download dlcb;      /* Download callback function */
 	alpm_cb_totaldl totaldlcb;  /* Total download callback function */
-	alpm_cb_fetch fetchcb;  /* Download file callback function */
+	alpm_cb_fetch fetchcb;      /* Download file callback function */
 	alpm_cb_event eventcb;
 	alpm_cb_question questioncb;
 	alpm_cb_progress progresscb;
@@ -85,6 +88,7 @@ struct __alpm_handle_t {
 	alpm_list_t *noextract;   /* List of files NOT to extract */
 	alpm_list_t *ignorepkg;   /* List of packages to ignore */
 	alpm_list_t *ignoregroup; /* List of groups to ignore */
+	alpm_list_t *assumeinstalled;   /* List of virtual packages used to satisfy dependencies */
 
 	/* options */
 	char *arch;              /* Architecture of packages we should allow */
@@ -99,6 +103,9 @@ struct __alpm_handle_t {
 
 	/* error code */
 	alpm_errno_t pm_errno;
+
+	/* lock file descriptor */
+	int lockfd;
 
 	/* for delta parsing efficiency */
 	int delta_regex_compiled;
@@ -116,4 +123,4 @@ alpm_errno_t _alpm_set_directory_option(const char *value,
 
 #endif /* _ALPM_HANDLE_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

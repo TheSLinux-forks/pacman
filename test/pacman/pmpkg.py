@@ -1,7 +1,5 @@
-#! /usr/bin/python2
-#
 #  Copyright (c) 2006 by Aurelien Foret <orelien@chez.com>
-#  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+#  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -16,11 +14,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 import os
-import tempfile
-import stat
-import shutil
 from StringIO import StringIO
 import tarfile
 
@@ -160,6 +154,8 @@ class pmpkg(object):
             info = tarfile.TarInfo(fileinfo["filename"])
             if fileinfo["hasperms"]:
                 info.mode = fileinfo["perms"]
+            elif fileinfo["isdir"]:
+                info.mode = 0o755
             if fileinfo["isdir"]:
                 info.type = tarfile.DIRTYPE
                 tar.addfile(info)
@@ -221,7 +217,7 @@ class pmpkg(object):
 
     def installfile(self):
         data = []
-        for key, value in self.install.iteritems():
+        for key, value in self.install.items():
             if value:
                 data.append("%s() {\n%s\n}\n" % (key, value))
 

@@ -2,6 +2,7 @@
 #
 # pacsorttest - a test suite for pacsort
 #
+#   Copyright (c) 2013-2014 by Pacman Development Team <pacman-dev@archlinux.org>
 #   Copyright (c) 2011 by Dan McGee <dan@archlinux.org>
 #
 #   This program is free software; you can redistribute it and/or modify
@@ -18,33 +19,37 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # default binary if one was not specified as $1
-bin='pacsort'
+bin=${1:-${PMTEST_UTIL_DIR}pacsort}
 # holds counts of tests
-total=0
+total=26
+run=0
 failure=0
+
+if ! type -p "$bin" &>/dev/null; then
+	echo "Bail out! pacsort binary ($bin) could not be located"
+	exit 1
+fi
 
 # args:
 # runtest input expected test_description optional_opts
 runtest() {
 	# run the test
-	diff -u <(printf "$1" | $bin $4) <(printf "$2")
-	if [[ $? -ne 0 ]]; then
-		echo "FAILURE: $3"
+	((run++))
+	out=$(diff -u <(printf "$1" | $bin $4) <(printf "$2"))
+	if [[ $? -eq 0 ]]; then
+		echo "ok $run - $3"
+	else
 		((failure++))
+		echo "not ok $run - $3"
+		while read line; do
+			echo "    # $line"
+		done <<<"$out"
 	fi
-	((total++))
 }
 
-# use first arg as our binary if specified
-[[ -n "$1" ]] && bin="$1"
+echo "# Running pacsort tests..."
 
-if ! type -p "$bin"; then
-	echo "pacsort binary ($bin) could not be located"
-	echo
-	exit 1
-fi
-
-echo "Running pacsort tests..."
+echo "1..$total"
 
 # BEGIN TESTS
 
@@ -84,6 +89,15 @@ runtest $in $in "filename sort with uneven leading path components" "--files"
 in="firefox-18.0-2-i686.pkg.tar.xz\nfirefox-18.0.1-1-x86_64.pkg.tar.gz\n"
 runtest $in $in "filename sort with different extensions" "--files"
 
+in="/packages/dialog-1.2_20131001-1-x86_64.pkg.tar.xz\n/packages/dialog-1:1.2_20130928-1-x86_64.pkg.tar.xz\n"
+runtest $in $in "filename sort with epoch" "--files"
+
+in="/packages/dia-log-1:1.2_20130928-1-x86_64.pkg.tar.xz\n/packages/dialog-1.2_20131001-1-x86_64.pkg.tar.xz\n"
+runtest $in $in "filename sort with differing package names and epoch" "--files"
+
+in="/packages/systemd-217-1-x86_64.pkg.tar.xz\n/packages/systemd-sysvcompat-217-1-x86_64.pkg.tar.xz\n"
+runtest $in $in "filename sort with package names as shared substring" "--files"
+
 # generate some long input/expected for the next few tests
 declare normal reverse names_normal names_reverse
 for ((i=1; i<600; i++)); do
@@ -113,11 +127,9 @@ runtest "$separator" "$separator_reverse" "really long input, sort key, separato
 #END TESTS
 
 if [[ $failure -eq 0 ]]; then
-	echo "All $total tests successful"
-	echo
+	echo "# All $run tests successful"
 	exit 0
 fi
 
-echo "$failure of $total tests failed"
-echo
+echo "# $failure of $run tests failed"
 exit 1

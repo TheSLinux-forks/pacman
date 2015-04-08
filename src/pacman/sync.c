@@ -1,7 +1,7 @@
 /*
  *  sync.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -230,7 +230,7 @@ static int sync_cleancache(int level)
 			}
 
 			if(level <= 1) {
-				static const char * const glob_skips[] = {
+				static const char *const glob_skips[] = {
 					/* skip signature files - they are removed with their package file */
 					"*.sig",
 					/* skip package database within the cache directory */
@@ -238,9 +238,7 @@ static int sync_cleancache(int level)
 					/* skip source packages within the cache directory */
 					"*.src.tar.*",
 					/* skip package deltas, we aren't smart enough to clean these yet */
-					"*.delta",
-					/* skip any partial downloads */
-					"*.part"
+					"*.delta"
 				};
 				size_t j;
 
@@ -369,15 +367,19 @@ static int sync_search(alpm_list_t *syncs, alpm_list_t *targets)
 static int sync_group(int level, alpm_list_t *syncs, alpm_list_t *targets)
 {
 	alpm_list_t *i, *j, *k, *s = NULL;
+	int ret = 0;
 
 	if(targets) {
+		size_t found;
 		for(i = targets; i; i = alpm_list_next(i)) {
+			found = 0;
 			const char *grpname = i->data;
 			for(j = syncs; j; j = alpm_list_next(j)) {
 				alpm_db_t *db = j->data;
 				alpm_group_t *grp = alpm_db_get_group(db, grpname);
 
 				if(grp) {
+					found++;
 					/* get names of packages in group */
 					for(k = grp->packages; k; k = alpm_list_next(k)) {
 						if(!config->quiet) {
@@ -389,13 +391,18 @@ static int sync_group(int level, alpm_list_t *syncs, alpm_list_t *targets)
 					}
 				}
 			}
+			if(!found) {
+				ret = 1;
+			}
 		}
 	} else {
+		ret = 1;
 		for(i = syncs; i; i = alpm_list_next(i)) {
 			alpm_db_t *db = i->data;
 
 			for(j = alpm_db_get_groupcache(db); j; j = alpm_list_next(j)) {
 				alpm_group_t *grp = j->data;
+				ret = 0;
 
 				if(level > 1) {
 					for(k = grp->packages; k; k = alpm_list_next(k)) {
@@ -414,7 +421,7 @@ static int sync_group(int level, alpm_list_t *syncs, alpm_list_t *targets)
 		alpm_list_free(s);
 	}
 
-	return 0;
+	return ret;
 }
 
 static int sync_info(alpm_list_t *syncs, alpm_list_t *targets)
@@ -487,6 +494,7 @@ static int sync_list(alpm_list_t *syncs, alpm_list_t *targets)
 {
 	alpm_list_t *i, *j, *ls = NULL;
 	alpm_db_t *db_local = alpm_get_localdb(config->handle);
+	int ret = 0;
 
 	if(targets) {
 		for(i = targets; i; i = alpm_list_next(i)) {
@@ -505,8 +513,7 @@ static int sync_list(alpm_list_t *syncs, alpm_list_t *targets)
 			if(db == NULL) {
 				pm_printf(ALPM_LOG_ERROR,
 					_("repository \"%s\" was not found.\n"), repo);
-				alpm_list_free(ls);
-				return 1;
+				ret = 1;
 			}
 
 			ls = alpm_list_add(ls, db);
@@ -538,7 +545,7 @@ static int sync_list(alpm_list_t *syncs, alpm_list_t *targets)
 		alpm_list_free(ls);
 	}
 
-	return 0;
+	return ret;
 }
 
 static alpm_db_t *get_db(const char *dbname)
@@ -559,9 +566,8 @@ static int process_pkg(alpm_pkg_t *pkg)
 
 	if(ret == -1) {
 		alpm_errno_t err = alpm_errno(config->handle);
-		if(err == ALPM_ERR_TRANS_DUP_TARGET
-				|| err == ALPM_ERR_PKG_IGNORED) {
-			/* just skip duplicate or ignored targets */
+		if(err == ALPM_ERR_TRANS_DUP_TARGET) {
+			/* just skip duplicate targets */
 			pm_printf(ALPM_LOG_WARNING, _("skipping target: %s\n"), alpm_pkg_get_name(pkg));
 			return 0;
 		} else {
@@ -594,10 +600,12 @@ static int process_group(alpm_list_t *dbs, const char *group, int error)
 	}
 
 	if(config->print == 0) {
-		colon_printf(_("There are %d members in group %s:\n"), count,
-				group);
-		select_display(pkgs);
 		char *array = malloc(count);
+		int n = 0;
+		colon_printf(_n("There is %d member in group %s:\n",
+				"There are %d members in group %s:\n", count),
+				count, group);
+		select_display(pkgs);
 		if(!array) {
 			ret = 1;
 			goto cleanup;
@@ -607,11 +615,12 @@ static int process_group(alpm_list_t *dbs, const char *group, int error)
 			free(array);
 			goto cleanup;
 		}
-		int n = 0;
-		for(i = pkgs; i; i = alpm_list_next(i)) {
-			if(array[n++] == 0)
-				continue;
+		for(i = pkgs, n = 0; i; i = alpm_list_next(i)) {
 			alpm_pkg_t *pkg = i->data;
+
+			if(array[n++] == 0) {
+				continue;
+			}
 
 			if(process_pkg(pkg) == 1) {
 				ret = 1;
@@ -641,7 +650,7 @@ static int process_targname(alpm_list_t *dblist, const char *targname,
 {
 	alpm_pkg_t *pkg = alpm_find_dbs_satisfier(config->handle, dblist, targname);
 
-	/* #FS#23342 - skip ignored packages when user says no */
+	/* skip ignored packages when user says no */
 	if(alpm_errno(config->handle) == ALPM_ERR_PKG_IGNORED) {
 			pm_printf(ALPM_LOG_WARNING, _("skipping target: %s\n"), targname);
 			return 0;
@@ -665,6 +674,7 @@ static int process_target(const char *target, int error)
 	if(targname && targname != targstring) {
 		alpm_db_t *db;
 		const char *dbname;
+		alpm_db_usage_t usage;
 
 		*targname = '\0';
 		targname++;
@@ -676,9 +686,19 @@ static int process_target(const char *target, int error)
 			ret = 1;
 			goto cleanup;
 		}
+
+		/* explicitly mark this repo as valid for installs since
+		 * a repo name was given with the target */
+		alpm_db_get_usage(db, &usage);
+		alpm_db_set_usage(db, usage|ALPM_DB_USAGE_INSTALL);
+
 		dblist = alpm_list_add(NULL, db);
 		ret = process_targname(dblist, targname, error);
 		alpm_list_free(dblist);
+
+		/* restore old usage so we don't possibly disturb later
+		 * targets */
+		alpm_db_set_usage(db, usage);
 	} else {
 		targname = targstring;
 		dblist = alpm_get_syncdbs(config->handle);
@@ -745,8 +765,9 @@ int sync_prepare_execute(void)
 		switch(err) {
 			case ALPM_ERR_PKG_INVALID_ARCH:
 				for(i = data; i; i = alpm_list_next(i)) {
-					const char *pkg = i->data;
+					char *pkg = i->data;
 					colon_printf(_("package %s does not have a valid architecture\n"), pkg);
+					free(pkg);
 				}
 				break;
 			case ALPM_ERR_UNSATISFIED_DEPS:
@@ -755,6 +776,7 @@ int sync_prepare_execute(void)
 					char *depstring = alpm_dep_compute_string(miss->depend);
 					colon_printf(_("%s: requires %s\n"), miss->target, depstring);
 					free(depstring);
+					alpm_depmissing_free(miss);
 				}
 				break;
 			case ALPM_ERR_CONFLICTING_DEPS:
@@ -770,6 +792,7 @@ int sync_prepare_execute(void)
 								conflict->package1, conflict->package2, reason);
 						free(reason);
 					}
+					alpm_conflict_free(conflict);
 				}
 				break;
 			default:
@@ -829,6 +852,7 @@ int sync_prepare_execute(void)
 									conflict->target, conflict->file);
 							break;
 					}
+					alpm_fileconflict_free(conflict);
 				}
 				break;
 			case ALPM_ERR_PKG_INVALID:
@@ -836,8 +860,9 @@ int sync_prepare_execute(void)
 			case ALPM_ERR_PKG_INVALID_SIG:
 			case ALPM_ERR_DLT_INVALID:
 				for(i = data; i; i = alpm_list_next(i)) {
-					const char *filename = i->data;
+					char *filename = i->data;
 					printf(_("%s is invalid or corrupted\n"), filename);
+					free(filename);
 				}
 				break;
 			default:
@@ -851,9 +876,7 @@ int sync_prepare_execute(void)
 
 	/* Step 4: release transaction resources */
 cleanup:
-	if(data) {
-		FREELIST(data);
-	}
+	alpm_list_free(data);
 	if(trans_release() == -1) {
 		retval = 1;
 	}
@@ -939,4 +962,4 @@ int pacman_sync(alpm_list_t *targets)
 	return sync_trans(targets);
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

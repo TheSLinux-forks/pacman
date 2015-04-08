@@ -1,7 +1,5 @@
-#! /usr/bin/python2
-#
 #  Copyright (c) 2006 by Aurelien Foret <orelien@chez.com>
-#  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+#  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -27,6 +25,7 @@ import time
 import pmrule
 import pmdb
 import pmfile
+import tap
 import util
 from util import vprint
 
@@ -38,7 +37,13 @@ class pmtest(object):
         self.name = name
         self.testname = os.path.basename(name).replace('.py', '')
         self.root = root
+        self.dbver = 9
         self.cachepkgs = True
+        self.cmd = ["pacman", "--noconfirm",
+                "--config", self.configfile(),
+                "--root", self.rootdir(),
+                "--dbpath", self.dbdir(),
+                "--cachedir", self.cachedir()]
 
     def __str__(self):
         return "name = %s\n" \
@@ -57,7 +62,7 @@ class pmtest(object):
         """Find a package object matching the name and version specified in
         either sync databases or the local package collection. The local database
         is allowed to match if allow_local is True."""
-        for db in self.db.itervalues():
+        for db in self.db.values():
             if db.is_local and not allow_local:
                 continue
             pkg = db.getpkg(name)
@@ -99,12 +104,13 @@ class pmtest(object):
         if os.path.isfile(self.name):
             # all tests expect this to be available
             from pmpkg import pmpkg
-            execfile(self.name)
+            with open(self.name) as input:
+                exec(input.read(),locals())
         else:
             raise IOError("file %s does not exist!" % self.name)
 
     def generate(self, pacman):
-        print "==> Generating test environment"
+        tap.diag("==> Generating test environment")
 
         # Cleanup leftover files from a previous test session
         if os.path.isdir(self.root):
@@ -129,7 +135,7 @@ class pmtest(object):
         for sys_dir in sys_dirs:
             if not os.path.isdir(sys_dir):
                 vprint("\t%s" % sys_dir[len(self.root)+1:])
-                os.makedirs(sys_dir, 0755)
+                os.makedirs(sys_dir, 0o755)
         # Only the dynamically linked binary is needed for fakechroot
         shutil.copy("/bin/sh", bindir)
         if shell != "bin/sh":
@@ -149,7 +155,7 @@ class pmtest(object):
             vprint("\t%s" % os.path.join(util.TMPDIR, pkg.filename()))
             pkg.finalize()
             pkg.makepkg(tmpdir)
-        for key, value in self.db.iteritems():
+        for key, value in self.db.items():
             for pkg in value.pkgs:
                 pkg.finalize()
             if key == "local" and not self.createlocalpkgs:
@@ -165,7 +171,7 @@ class pmtest(object):
 
         # Creating sync database archives
         vprint("    Creating databases")
-        for key, value in self.db.iteritems():
+        for key, value in self.db.items():
             vprint("\t" + value.treename)
             value.generate()
 
@@ -180,35 +186,43 @@ class pmtest(object):
         for pkg in self.db["local"].pkgs:
             vprint("\tinstalling %s" % pkg.fullname())
             pkg.install_package(self.root)
+        if self.db["local"].pkgs and self.dbver >= 9:
+            path = os.path.join(self.root, util.PM_DBPATH, "local")
+            util.mkfile(path, "ALPM_DB_VERSION", str(self.dbver))
 
         # Done.
         vprint("    Taking a snapshot of the file system")
-        for roots, dirs, files in os.walk(self.root):
-            for i in files:
-                filename = os.path.join(roots, i)
-                f = pmfile.PacmanFile(self.root, filename.replace(self.root + "/", ""))
-                self.files.append(f)
-                vprint("\t%s" % f.name)
+        for filename in self.snapshots_needed():
+            f = pmfile.PacmanFile(self.root, filename)
+            self.files.append(f)
+            vprint("\t%s" % f.name)
+
+
+    def snapshots_needed(self):
+        files = set()
+        for r in self.rules:
+            files.update(r.snapshots_needed())
+        return files
 
     def run(self, pacman):
         if os.path.isfile(util.PM_LOCK):
-            print "\tERROR: another pacman session is on-going -- skipping"
+            tap.bail("\tERROR: another pacman session is on-going -- skipping")
             return
 
-        print "==> Running test"
+        tap.diag("==> Running test")
         vprint("\tpacman %s" % self.args)
 
         cmd = []
         if os.geteuid() != 0:
             fakeroot = util.which("fakeroot")
             if not fakeroot:
-                print "WARNING: fakeroot not found!"
+                tap.diag("WARNING: fakeroot not found!")
             else:
                 cmd.append("fakeroot")
 
             fakechroot = util.which("fakechroot")
             if not fakechroot:
-                print "WARNING: fakechroot not found!"
+                tap.diag("WARNING: fakechroot not found!")
             else:
                 cmd.append("fakechroot")
 
@@ -220,18 +234,30 @@ class pmtest(object):
             cmd.extend(["libtool", "execute", "valgrind", "-q",
                 "--tool=memcheck", "--leak-check=full",
                 "--show-reachable=yes",
+                "--gen-suppressions=all",
+                "--child-silent-after-fork=yes",
+                "--log-file=%s" % os.path.join(self.root, "var/log/valgrind"),
                 "--suppressions=%s" % suppfile])
-        cmd.extend([pacman["bin"],
-            "--config", os.path.join(self.root, util.PACCONF),
-            "--root", self.root,
-            "--dbpath", os.path.join(self.root, util.PM_DBPATH),
-            "--cachedir", os.path.join(self.root, util.PM_CACHEDIR)])
-        if not pacman["manual-confirm"]:
-            cmd.append("--noconfirm")
+            self.addrule("FILE_EMPTY=var/log/valgrind")
+
+        # replace program name with absolute path
+        prog = pacman["bin"]
+        if not prog:
+            prog = util.which(self.cmd[0], pacman["bindir"])
+        if not prog or not os.access(prog, os.X_OK):
+            if not prog:
+                tap.bail("could not locate '%s' binary" % (self.cmd[0]))
+                return
+
+        cmd.append(os.path.abspath(prog))
+        cmd.extend(self.cmd[1:])
+        if pacman["manual-confirm"]:
+            cmd.append("--confirm")
         if pacman["debug"]:
             cmd.append("--debug=%s" % pacman["debug"])
         cmd.extend(shlex.split(self.args))
-        if not (pacman["gdb"] or pacman["valgrind"] or pacman["nolog"]):
+
+        if not (pacman["gdb"] or pacman["nolog"]):
             output = open(os.path.join(self.root, util.LOGFILE), 'w')
         else:
             output = None
@@ -241,7 +267,7 @@ class pmtest(object):
         # archives are made available more easily.
         time_start = time.time()
         self.retcode = subprocess.call(cmd, stdout=output, stderr=output,
-                cwd=os.path.join(self.root, util.TMPDIR))
+                cwd=os.path.join(self.root, util.TMPDIR), env={'LC_ALL': 'C'})
         time_end = time.time()
         vprint("\ttime elapsed: %.2fs" % (time_end - time_start))
 
@@ -252,25 +278,32 @@ class pmtest(object):
 
         # Check if the lock is still there
         if os.path.isfile(util.PM_LOCK):
-            print "\tERROR: %s not removed" % util.PM_LOCK
+            tap.diag("\tERROR: %s not removed" % util.PM_LOCK)
             os.unlink(util.PM_LOCK)
         # Look for a core file
         if os.path.isfile(os.path.join(self.root, util.TMPDIR, "core")):
-            print "\tERROR: pacman dumped a core file"
+            tap.diag("\tERROR: pacman dumped a core file")
 
     def check(self):
-        print "==> Checking rules"
-
+        tap.plan(len(self.rules))
         for i in self.rules:
             success = i.check(self)
             if success == 1:
-                msg = " OK "
                 self.result["success"] += 1
-            elif success == 0:
-                msg = "FAIL"
-                self.result["fail"] += 1
             else:
-                msg = "SKIP"
-            print "\t[%s] %s" % (msg, i)
+                self.result["fail"] += 1
+            tap.ok(success, i)
+
+    def configfile(self):
+        return os.path.join(self.root, util.PACCONF)
+
+    def dbdir(self):
+        return os.path.join(self.root, util.PM_DBPATH)
+
+    def rootdir(self):
+        return self.root + '/'
+
+    def cachedir(self):
+        return os.path.join(self.root, util.PM_CACHEDIR)
 
 # vim: set ts=4 sw=4 et:

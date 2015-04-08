@@ -1,7 +1,7 @@
 /*
  *  util.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -31,7 +31,6 @@
 #include <errno.h>
 #include <limits.h>
 #include <sys/wait.h>
-#include <locale.h> /* setlocale */
 #include <fnmatch.h>
 
 /* libarchive */
@@ -143,7 +142,7 @@ done:
 /** Copies a file.
  * @param src file path to copy from
  * @param dest file path to copy to
- * @return 0 on success, 1 on error 
+ * @return 0 on success, 1 on error
  */
 int _alpm_copyfile(const char *src, const char *dest)
 {
@@ -154,9 +153,9 @@ int _alpm_copyfile(const char *src, const char *dest)
 
 	MALLOC(buf, (size_t)ALPM_BUFFER_SIZE, return 1);
 
-	OPEN(in, src, O_RDONLY);
+	OPEN(in, src, O_RDONLY | O_CLOEXEC);
 	do {
-		out = open(dest, O_WRONLY | O_CREAT, 0000);
+		out = open(dest, O_WRONLY | O_CREAT | O_BINARY | O_CLOEXEC, 0000);
 	} while(out == -1 && errno == EINTR);
 	if(in < 0 || out < 0) {
 		goto cleanup;
@@ -186,10 +185,10 @@ int _alpm_copyfile(const char *src, const char *dest)
 cleanup:
 	free(buf);
 	if(in >= 0) {
-		CLOSE(in);
+		close(in);
 	}
 	if(out >= 0) {
-		CLOSE(out);
+		close(out);
 	}
 	return ret;
 }
@@ -245,7 +244,7 @@ int _alpm_open_archive(alpm_handle_t *handle, const char *path,
 	archive_read_support_format_all(*archive);
 
 	_alpm_log(handle, ALPM_LOG_DEBUG, "opening archive %s\n", path);
-	OPEN(fd, path, O_RDONLY);
+	OPEN(fd, path, O_RDONLY | O_CLOEXEC);
 	if(fd < 0) {
 		_alpm_log(handle, ALPM_LOG_ERROR,
 				_("could not open file %s: %s\n"), path, strerror(errno));
@@ -275,7 +274,7 @@ error:
 	_alpm_archive_read_free(*archive);
 	*archive = NULL;
 	if(fd >= 0) {
-		CLOSE(fd);
+		close(fd);
 	}
 	RET_ERR(handle, error, -1);
 }
@@ -327,7 +326,7 @@ int _alpm_unpack(alpm_handle_t *handle, const char *path, const char *prefix,
 	oldmask = umask(0022);
 
 	/* save the cwd so we can restore it later */
-	OPEN(cwdfd, ".", O_RDONLY);
+	OPEN(cwdfd, ".", O_RDONLY | O_CLOEXEC);
 	if(cwdfd < 0) {
 		_alpm_log(handle, ALPM_LOG_ERROR, _("could not get current working directory\n"));
 	}
@@ -394,13 +393,13 @@ int _alpm_unpack(alpm_handle_t *handle, const char *path, const char *prefix,
 cleanup:
 	umask(oldmask);
 	_alpm_archive_read_free(archive);
-	CLOSE(fd);
+	close(fd);
 	if(cwdfd >= 0) {
 		if(fchdir(cwdfd) != 0) {
 			_alpm_log(handle, ALPM_LOG_ERROR,
 					_("could not restore working directory (%s)\n"), strerror(errno));
 		}
-		CLOSE(cwdfd);
+		close(cwdfd);
 	}
 
 	return ret;
@@ -503,7 +502,7 @@ int _alpm_run_chroot(alpm_handle_t *handle, const char *cmd, char *const argv[])
 	int retval = 0;
 
 	/* save the cwd so we can restore it later */
-	OPEN(cwdfd, ".", O_RDONLY);
+	OPEN(cwdfd, ".", O_RDONLY | O_CLOEXEC);
 	if(cwdfd < 0) {
 		_alpm_log(handle, ALPM_LOG_ERROR, _("could not get current working directory\n"));
 	}
@@ -527,7 +526,7 @@ int _alpm_run_chroot(alpm_handle_t *handle, const char *cmd, char *const argv[])
 		goto cleanup;
 	}
 
-	/* fork- parent and child each have seperate code blocks below */
+	/* fork- parent and child each have separate code blocks below */
 	pid = fork();
 	if(pid == -1) {
 		_alpm_log(handle, ALPM_LOG_ERROR, _("could not fork a new process (%s)\n"), strerror(errno));
@@ -537,12 +536,13 @@ int _alpm_run_chroot(alpm_handle_t *handle, const char *cmd, char *const argv[])
 
 	if(pid == 0) {
 		/* this code runs for the child only (the actual chroot/exec) */
-		CLOSE(1);
-		CLOSE(2);
+		close(1);
+		close(2);
 		while(dup2(pipefd[1], 1) == -1 && errno == EINTR);
 		while(dup2(pipefd[1], 2) == -1 && errno == EINTR);
-		CLOSE(pipefd[0]);
-		CLOSE(pipefd[1]);
+		close(pipefd[0]);
+		close(pipefd[1]);
+		close(cwdfd);
 
 		/* use fprintf instead of _alpm_log to send output through the parent */
 		if(chroot(handle->root) != 0) {
@@ -564,18 +564,23 @@ int _alpm_run_chroot(alpm_handle_t *handle, const char *cmd, char *const argv[])
 		int status;
 		FILE *pipe_file;
 
-		CLOSE(pipefd[1]);
+		close(pipefd[1]);
 		pipe_file = fdopen(pipefd[0], "r");
 		if(pipe_file == NULL) {
-			CLOSE(pipefd[0]);
+			close(pipefd[0]);
 			retval = 1;
 		} else {
 			while(!feof(pipe_file)) {
 				char line[PATH_MAX];
-				if(fgets(line, PATH_MAX, pipe_file) == NULL)
+				alpm_event_scriptlet_info_t event = {
+					.type = ALPM_EVENT_SCRIPTLET_INFO,
+					.line = line
+				};
+				if(safe_fgets(line, PATH_MAX, pipe_file) == NULL) {
 					break;
+				}
 				alpm_logaction(handle, "ALPM-SCRIPTLET", "%s", line);
-				EVENT(handle, ALPM_EVENT_SCRIPTLET_INFO, line, NULL);
+				EVENT(handle, &event);
 			}
 			fclose(pipe_file);
 		}
@@ -600,6 +605,15 @@ int _alpm_run_chroot(alpm_handle_t *handle, const char *cmd, char *const argv[])
 				_alpm_log(handle, ALPM_LOG_ERROR, _("command failed to execute correctly\n"));
 				retval = 1;
 			}
+		} else if(WIFSIGNALED(status) != 0) {
+			char *signal_description = strsignal(WTERMSIG(status));
+			/* strsignal can return NULL on some (non-Linux) platforms */
+			if(signal_description == NULL) {
+				signal_description = _("Unknown signal");
+			}
+			_alpm_log(handle, ALPM_LOG_ERROR, _("command terminated by signal %d: %s\n"),
+						WTERMSIG(status), signal_description);
+			retval = 1;
 		}
 	}
 
@@ -609,7 +623,7 @@ cleanup:
 			_alpm_log(handle, ALPM_LOG_ERROR,
 					_("could not restore working directory (%s)\n"), strerror(errno));
 		}
-		CLOSE(cwdfd);
+		close(cwdfd);
 	}
 
 	return retval;
@@ -677,7 +691,7 @@ char *_alpm_filecache_find(alpm_handle_t *handle, const char *filename)
 	return NULL;
 }
 
-/** Check the alpm cachedirs for existance and find a writable one.
+/** Check the alpm cachedirs for existence and find a writable one.
  * If no valid cache directory can be found, use /tmp.
  * @param handle the context handle
  * @return pointer to a writable cache directory.
@@ -729,31 +743,6 @@ const char *_alpm_filecache_setup(alpm_handle_t *handle)
 	return cachedir;
 }
 
-/** lstat wrapper that treats /path/dirsymlink/ the same as /path/dirsymlink.
- * Linux lstat follows POSIX semantics and still performs a dereference on
- * the first, and for uses of lstat in libalpm this is not what we want.
- * @param path path to file to lstat
- * @param buf structure to fill with stat information
- * @return the return code from lstat
- */
-int _alpm_lstat(const char *path, struct stat *buf)
-{
-	int ret;
-	size_t len = strlen(path);
-
-	/* strip the trailing slash if one exists */
-	if(len != 0 && path[len - 1] == '/') {
-		char *newpath = strdup(path);
-		newpath[len - 1] = '\0';
-		ret = lstat(newpath, buf);
-		free(newpath);
-	} else {
-		ret = lstat(path, buf);
-	}
-
-	return ret;
-}
-
 #ifdef HAVE_LIBSSL
 /** Compute the MD5 message digest of a file.
  * @param path file path of file to compute  MD5 digest of
@@ -769,7 +758,7 @@ static int md5_file(const char *path, unsigned char output[16])
 
 	MALLOC(buf, (size_t)ALPM_BUFFER_SIZE, return 1);
 
-	OPEN(fd, path, O_RDONLY);
+	OPEN(fd, path, O_RDONLY | O_CLOEXEC);
 	if(fd < 0) {
 		free(buf);
 		return 1;
@@ -784,7 +773,7 @@ static int md5_file(const char *path, unsigned char output[16])
 		MD5_Update(&ctx, buf, n);
 	}
 
-	CLOSE(fd);
+	close(fd);
 	free(buf);
 
 	if(n < 0) {
@@ -811,7 +800,7 @@ static int sha2_file(const char *path, unsigned char output[32], int is224)
 
 	MALLOC(buf, (size_t)ALPM_BUFFER_SIZE, return 1);
 
-	OPEN(fd, path, O_RDONLY);
+	OPEN(fd, path, O_RDONLY | O_CLOEXEC);
 	if(fd < 0) {
 		free(buf);
 		return 1;
@@ -834,7 +823,7 @@ static int sha2_file(const char *path, unsigned char output[32], int is224)
 		}
 	}
 
-	CLOSE(fd);
+	close(fd);
 	free(buf);
 
 	if(n < 0) {
@@ -912,7 +901,7 @@ char SYMEXPORT *alpm_compute_sha256sum(const char *filename)
 	return hex_representation(output, 32);
 }
 
-/** Calculates a file's MD5 or SHA2 digest  and compares it to an expected value. 
+/** Calculates a file's MD5 or SHA-2 digest and compares it to an expected value.
  * @param filepath path of the file to check
  * @param expected hash value to compare against
  * @param type digest type to use
@@ -950,7 +939,7 @@ int _alpm_test_checksum(const char *filepath, const char *expected,
  * Does not handle sparse files on purpose for speed.
  * @param a
  * @param b
- * @return 
+ * @return
  */
 int _alpm_archive_fgets(struct archive *a, struct archive_read_buffer *b)
 {
@@ -1169,20 +1158,6 @@ alpm_time_t _alpm_parsedate(const char *line)
 	long long result;
 	errno = 0;
 
-	if(isalpha((unsigned char)line[0])) {
-		const char *oldlocale;
-		/* initialize to null in case of failure */
-		struct tm tmp_tm;
-		memset(&tmp_tm, 0, sizeof(struct tm));
-
-		oldlocale = setlocale(LC_TIME, NULL);
-		setlocale(LC_TIME, "C");
-		strptime(line, "%a %b %e %H:%M:%S %Y", &tmp_tm);
-		setlocale(LC_TIME, oldlocale);
-
-		return (alpm_time_t)mktime(&tmp_tm);
-	}
-
 	result = strtoll(line, &end, 10);
 	if(result == 0 && end == line) {
 		/* line was not a number */
@@ -1249,9 +1224,40 @@ int _alpm_access(alpm_handle_t *handle, const char *dir, const char *file, int a
 	return ret;
 }
 
+/** Checks whether a string matches at least one shell wildcard pattern.
+ * Checks for matches with fnmatch. Matches are inverted by prepending
+ * patterns with an exclamation mark. Preceding exclamation marks may be
+ * escaped. Subsequent matches override previous ones.
+ * @param patterns patterns to match against
+ * @param string string to check against pattern
+ * @return 0 if string matches pattern, negative if they don't match and
+ * positive if the last match was inverted
+ */
+int _alpm_fnmatch_patterns(alpm_list_t *patterns, const char *string)
+{
+	alpm_list_t *i;
+	char *pattern;
+	short inverted;
+
+	for(i = alpm_list_last(patterns); i; i = alpm_list_previous(i)) {
+		pattern = i->data;
+
+		inverted = pattern[0] == '!';
+		if(inverted || pattern[0] == '\\') {
+			pattern++;
+		}
+
+		if(_alpm_fnmatch(pattern, string) == 0) {
+			return inverted;
+		}
+	}
+
+	return -1;
+}
+
 /** Checks whether a string matches a shell wildcard pattern.
  * Wrapper around fnmatch.
- * @param pattern pattern to match aganist
+ * @param pattern pattern to match against
  * @param string string to check against pattern
  * @return 0 if string matches pattern, non-zero if they don't match and on
  * error
@@ -1261,9 +1267,71 @@ int _alpm_fnmatch(const void *pattern, const void *string)
 	return fnmatch(pattern, string, 0);
 }
 
+/** Think of this as realloc with error handling. If realloc fails NULL will be
+ * returned and data will not be changed.
+ *
+ * Newly created memory will be zeroed.
+ *
+ * @param data source memory space
+ * @param current size of the space pointed to by data
+ * @param required size you want
+ * @return new memory; NULL on error
+ */
+void *_alpm_realloc(void **data, size_t *current, const size_t required)
+{
+	char *newdata;
+
+	newdata = realloc(*data, required);
+	if(!newdata) {
+		_alpm_alloc_fail(required);
+		return NULL;
+	}
+
+	if (*current < required) {
+		/* ensure all new memory is zeroed out, in both the initial
+		 * allocation and later reallocs */
+		memset(newdata + *current, 0, required - *current);
+	}
+	*current = required;
+	*data = newdata;
+	return newdata;
+}
+
+/** This automatically grows data based on current/required.
+ *
+ * The memory space will be initialised to required bytes and doubled in size when required.
+ *
+ * Newly created memory will be zeroed.
+ * @param data source memory space
+ * @param current size of the space pointed to by data
+ * @param required size you want
+ * @return new memory if grown; old memory otherwise; NULL on error
+ */
+void *_alpm_greedy_grow(void **data, size_t *current, const size_t required)
+{
+	size_t newsize = 0;
+
+	if(*current >= required) {
+		return data;
+	}
+
+	if(*current == 0) {
+		newsize = required;
+	} else {
+		newsize = *current * 2;
+	}
+
+	/* check for overflows */
+	if (newsize < required) {
+		return NULL;
+	}
+
+	return _alpm_realloc(data, current, newsize);
+}
+
 void _alpm_alloc_fail(size_t size)
 {
 	fprintf(stderr, "alloc failure: could not allocate %zd bytes\n", size);
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

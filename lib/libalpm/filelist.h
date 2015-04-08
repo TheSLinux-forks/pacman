@@ -1,7 +1,7 @@
 /*
  *  filelist.h
  *
- *  Copyright (c) 2012-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2012-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,10 +21,6 @@
 
 #include "alpm.h"
 
-int _alpm_filelist_resolve_link(alpm_filelist_t *files, size_t *i,
-		char *path, size_t root_len, int resolving);
-int _alpm_filelist_resolve(alpm_handle_t *handle, alpm_filelist_t *files);
-
 alpm_list_t *_alpm_filelist_difference(alpm_filelist_t *filesA,
 		alpm_filelist_t *filesB);
 
@@ -35,4 +31,4 @@ int _alpm_files_cmp(const void *f1, const void *f2);
 
 #endif /* _ALPM_FILELIST_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

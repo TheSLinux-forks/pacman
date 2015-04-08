@@ -1,7 +1,7 @@
 /*
  *  conf.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,6 @@
  */
 
 #include <errno.h>
-#include <glob.h>
 #include <limits.h>
 #include <locale.h> /* setlocale */
 #include <fcntl.h> /* open */
@@ -33,6 +32,7 @@
 
 /* pacman */
 #include "conf.h"
+#include "ini.h"
 #include "util.h"
 #include "pacman.h"
 #include "callback.h"
@@ -76,6 +76,16 @@ void enable_colors(int colors)
 		colstr->warn    = BOLDYELLOW;
 		colstr->err     = BOLDRED;
 		colstr->nocolor = NOCOLOR;
+	} else {
+		colstr->colon   = ":: ";
+		colstr->title   = "";
+		colstr->repo    = "";
+		colstr->version = "";
+		colstr->groups  = "";
+		colstr->meta    = "";
+		colstr->warn    = "";
+		colstr->err     = "";
+		colstr->nocolor = "";
 	}
 }
 
@@ -83,10 +93,9 @@ config_t *config_new(void)
 {
 	config_t *newconfig = calloc(1, sizeof(config_t));
 	if(!newconfig) {
-			pm_printf(ALPM_LOG_ERROR,
-					_("malloc failure: could not allocate %zd bytes\n"),
-					sizeof(config_t));
-			return NULL;
+		pm_printf(ALPM_LOG_ERROR,
+				_("malloc failure: could not allocate %zd bytes\n"), sizeof(config_t));
+		return NULL;
 	}
 	/* defaults which may get overridden later */
 	newconfig->op = PM_OP_MAIN;
@@ -125,6 +134,7 @@ int config_free(config_t *oldconfig)
 	FREELIST(oldconfig->holdpkg);
 	FREELIST(oldconfig->ignorepkg);
 	FREELIST(oldconfig->ignoregrp);
+	FREELIST(oldconfig->assumeinstalled);
 	FREELIST(oldconfig->noupgrade);
 	FREELIST(oldconfig->noextract);
 	free(oldconfig->configfile);
@@ -257,14 +267,11 @@ static int download_with_xfercommand(const char *url, const char *localpath,
 cleanup:
 	/* restore the old cwd if we have it */
 	if(cwdfd >= 0) {
-		int close_ret;
 		if(fchdir(cwdfd) != 0) {
 			pm_printf(ALPM_LOG_ERROR, _("could not restore working directory (%s)\n"),
 					strerror(errno));
 		}
-		do {
-			close_ret = close(cwdfd);
-		} while(close_ret == -1 && errno == EINTR);
+		close(cwdfd);
 	}
 
 	if(ret == -1) {
@@ -408,9 +415,7 @@ static int process_siglevel(alpm_list_t *values, alpm_siglevel_t *storage,
 static void merge_siglevel(alpm_siglevel_t *base, alpm_siglevel_t *over)
 {
 	alpm_siglevel_t level = *over;
-	if(level & ALPM_SIG_USE_DEFAULT) {
-		level = *base;
-	} else {
+	if(!(level & ALPM_SIG_USE_DEFAULT)) {
 		if(!(level & ALPM_SIG_PACKAGE_SET)) {
 			level |= *base & ALPM_SIG_PACKAGE;
 			level |= *base & ALPM_SIG_PACKAGE_OPTIONAL;
@@ -454,7 +459,7 @@ static int process_cleanmethods(alpm_list_t *values,
 static void setrepeatingoption(char *ptr, const char *option,
 		alpm_list_t **list)
 {
-	char *val, *saveptr;
+	char *val, *saveptr = NULL;
 
 	val = strtok_r(ptr, " ", &saveptr);
 	while(val) {
@@ -519,7 +524,7 @@ static int _parse_options(const char *key, char *value,
 			char *endptr;
 			const char *oldlocale;
 
-			/* set the locale to 'C' for consistant decimal parsing (0.7 and never
+			/* set the locale to 'C' for consistent decimal parsing (0.7 and never
 			 * 0,7) from config files, then restore old setting when we are done */
 			oldlocale = setlocale(LC_NUMERIC, NULL);
 			setlocale(LC_NUMERIC, "C");
@@ -636,7 +641,7 @@ static int _add_mirror(alpm_db_t *db, char *value)
 }
 
 /** Sets up libalpm global stuff in one go. Called after the command line
- * and inital config file parsing. Once this is complete, we can see if any
+ * and initial config file parsing. Once this is complete, we can see if any
  * paths were defined. If a rootdir was defined and nothing else, we want all
  * of our paths to live under the rootdir that was specified. Safe to call
  * multiple times (will only do anything the first time).
@@ -646,6 +651,7 @@ static int setup_libalpm(void)
 	int ret = 0;
 	alpm_errno_t err;
 	alpm_handle_t *handle;
+	alpm_list_t *i;
 
 	pm_printf(ALPM_LOG_DEBUG, "setup_libalpm called\n");
 
@@ -671,8 +677,8 @@ static int setup_libalpm(void)
 	/* initialize library */
 	handle = alpm_initialize(config->rootdir, config->dbpath, &err);
 	if(!handle) {
-		pm_printf(ALPM_LOG_ERROR, _("failed to initialize alpm library (%s)\n"),
-		        alpm_strerror(err));
+		pm_printf(ALPM_LOG_ERROR, _("failed to initialize alpm library\n(%s: %s)\n"),
+		        alpm_strerror(err), config->dbpath);
 		if(err == ALPM_ERR_DB_VERSION) {
 			pm_printf(ALPM_LOG_ERROR, _("  try running pacman-db-upgrade\n"));
 		}
@@ -694,7 +700,7 @@ static int setup_libalpm(void)
 		return ret;
 	}
 
-	/* Set GnuPG's home directory.  This is not relative to rootdir, even if
+	/* Set GnuPG's home directory. This is not relative to rootdir, even if
 	 * rootdir is defined. Reasoning: gpgdir contains configuration data. */
 	config->gpgdir = config->gpgdir ? config->gpgdir : strdup(GPGDIR);
 	ret = alpm_option_set_gpgdir(handle, config->gpgdir);
@@ -721,7 +727,7 @@ static int setup_libalpm(void)
 	if(config->xfercommand) {
 		alpm_option_set_fetchcb(handle, download_with_xfercommand);
 	} else if(!(alpm_capabilities() & ALPM_CAPABILITY_DOWNLOADER)) {
-		pm_printf(ALPM_LOG_WARNING, _("no '%s' configured"), "XferCommand");
+		pm_printf(ALPM_LOG_WARNING, _("no '%s' configured\n"), "XferCommand");
 	}
 
 	if(config->totaldownload) {
@@ -738,6 +744,22 @@ static int setup_libalpm(void)
 	alpm_option_set_noupgrades(handle, config->noupgrade);
 	alpm_option_set_noextracts(handle, config->noextract);
 
+	for(i = config->assumeinstalled; i; i = i->next) {
+		char *entry = i->data;
+		alpm_depend_t *dep = alpm_dep_from_string(entry);
+		if(!dep) {
+			return 1;
+		}
+		pm_printf(ALPM_LOG_DEBUG, "parsed assume installed: %s %s\n", dep->name, dep->version);
+
+		ret = alpm_option_add_assumeinstalled(handle, dep);
+		if(ret) {
+			pm_printf(ALPM_LOG_ERROR, _("Failed to pass assume installed entry to libalpm"));
+			alpm_dep_free(dep);
+			return ret;
+		}
+	 }
+
 	return 0;
 }
 
@@ -747,12 +769,95 @@ static int setup_libalpm(void)
  */
 struct section_t {
 	/* useful for all sections */
-	char *name;
+	const char *name;
 	int is_options;
+	int parse_options;
 	/* db section option gathering */
-	alpm_siglevel_t siglevel;
 	alpm_list_t *servers;
+	alpm_siglevel_t siglevel;
+	alpm_db_usage_t usage;
 };
+
+static int process_usage(alpm_list_t *values, alpm_db_usage_t *usage,
+		const char *file, int linenum)
+{
+	alpm_list_t *i;
+	alpm_db_usage_t level = *usage;
+	int ret = 0;
+
+	for(i = values; i; i = i->next) {
+		char *key = i->data;
+
+		if(strcmp(key, "Sync") == 0) {
+			level |= ALPM_DB_USAGE_SYNC;
+		} else if(strcmp(key, "Search") == 0) {
+			level |= ALPM_DB_USAGE_SEARCH;
+		} else if(strcmp(key, "Install") == 0) {
+			level |= ALPM_DB_USAGE_INSTALL;
+		} else if(strcmp(key, "Upgrade") == 0) {
+			level |= ALPM_DB_USAGE_UPGRADE;
+		} else if(strcmp(key, "All") == 0) {
+			level |= ALPM_DB_USAGE_ALL;
+		} else {
+			pm_printf(ALPM_LOG_ERROR,
+					_("config file %s, line %d: '%s' option '%s' not recognized\n"),
+					file, linenum, "Usage", key);
+			ret = 1;
+		}
+	}
+
+	*usage = level;
+
+	return ret;
+}
+
+
+static int _parse_repo(const char *key, char *value, const char *file,
+		int line, struct section_t *section)
+{
+	int ret = 0;
+
+	if(strcmp(key, "Server") == 0) {
+		if(!value) {
+			pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: directive '%s' needs a value\n"),
+					file, line, key);
+			ret = 1;
+		} else {
+			section->servers = alpm_list_add(section->servers, strdup(value));
+		}
+	} else if(strcmp(key, "SigLevel") == 0) {
+		if(!value) {
+			pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: directive '%s' needs a value\n"),
+					file, line, key);
+		} else {
+			alpm_list_t *values = NULL;
+			setrepeatingoption(value, "SigLevel", &values);
+			if(values) {
+				if(section->siglevel == ALPM_SIG_USE_DEFAULT) {
+					section->siglevel = config->siglevel;
+				}
+				ret = process_siglevel(values, &section->siglevel, file, line);
+				FREELIST(values);
+			}
+		}
+	} else if(strcmp(key, "Usage") == 0) {
+		alpm_list_t *values = NULL;
+		setrepeatingoption(value, "Usage", &values);
+		if(values) {
+			if(process_usage(values, &section->usage, file, line)) {
+				FREELIST(values);
+				return 1;
+			}
+			FREELIST(values);
+		}
+	} else {
+		pm_printf(ALPM_LOG_WARNING,
+				_("config file %s, line %d: directive '%s' in section '%s' not recognized.\n"),
+				file, line, key, section->name);
+	}
+
+	return ret;
+}
 
 /**
  * Wrap up a section once we have reached the end of it. This should be called
@@ -763,7 +868,7 @@ struct section_t {
  * @param parse_options whether we are parsing options or repo data
  * @return 0 on success, 1 on failure
  */
-static int finish_section(struct section_t *section, int parse_options)
+static int finish_section(struct section_t *section)
 {
 	int ret = 0;
 	alpm_list_t *i;
@@ -772,7 +877,7 @@ static int finish_section(struct section_t *section, int parse_options)
 	pm_printf(ALPM_LOG_DEBUG, "config: finish section '%s'\n", section->name);
 
 	/* parsing options (or nothing)- nothing to do except free the pieces */
-	if(!section->name || parse_options || section->is_options) {
+	if(!section->name || section->parse_options || section->is_options) {
 		goto cleanup;
 	}
 
@@ -784,6 +889,12 @@ static int finish_section(struct section_t *section, int parse_options)
 		ret = 1;
 		goto cleanup;
 	}
+
+	pm_printf(ALPM_LOG_DEBUG,
+			"setting usage of %d for %s repoistory\n",
+			section->usage == 0 ? ALPM_DB_USAGE_ALL : section->usage,
+			section->name);
+	alpm_db_set_usage(db, section->usage == 0 ? ALPM_DB_USAGE_ALL : section->usage);
 
 	for(i = section->servers; i; i = alpm_list_next(i)) {
 		char *value = i->data;
@@ -801,196 +912,42 @@ cleanup:
 	alpm_list_free(section->servers);
 	section->servers = NULL;
 	section->siglevel = ALPM_SIG_USE_DEFAULT;
-	free(section->name);
 	section->name = NULL;
+	section->usage = 0;
 	return ret;
 }
 
-/** The "real" parseconfig. Each "Include" directive will recall this method so
- * recursion and stack depth are limited to 10 levels. The publicly visible
- * parseconfig calls this with a NULL section argument so we can recall from
- * within ourself on an include.
- * @param file path to the config file
- * @param section the current active section
- * @param parse_options whether to parse and call methods for the options
- * section; if 0, parse and call methods for the repos sections
- * @param depth the current recursion depth
- * @return 0 on success, 1 on failure
- */
-static int _parseconfig(const char *file, struct section_t *section,
-		int parse_options, int depth)
+static int _parse_directive(const char *file, int linenum, const char *name,
+		char *key, char *value, void *data)
 {
-	FILE *fp = NULL;
-	char line[PATH_MAX];
-	int linenum = 0;
-	int ret = 0;
-	const int max_depth = 10;
-
-	if(depth >= max_depth) {
-		pm_printf(ALPM_LOG_ERROR,
-				_("config parsing exceeded max recursion depth of %d.\n"), max_depth);
-		ret = 1;
-		goto cleanup;
+	struct section_t *section = data;
+	if(!key && !value) {
+		int ret = finish_section(section);
+		pm_printf(ALPM_LOG_DEBUG, "config: new section '%s'\n", name);
+		section->name = name;
+		if(name && strcmp(name, "options") == 0) {
+			section->is_options = 1;
+		} else {
+			section->is_options = 0;
+		}
+		return ret;
 	}
 
-	pm_printf(ALPM_LOG_DEBUG, "config: attempting to read file %s\n", file);
-	fp = fopen(file, "r");
-	if(fp == NULL) {
-		pm_printf(ALPM_LOG_ERROR, _("config file %s could not be read: %s\n"),
-				file, strerror(errno));
-		ret = 1;
-		goto cleanup;
+	if(section->name == NULL) {
+		pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: All directives must belong to a section.\n"),
+				file, linenum);
+		return 1;
 	}
 
-	while(fgets(line, PATH_MAX, fp)) {
-		char *key, *value, *ptr;
-		size_t line_len;
-
-		linenum++;
-
-		/* ignore whole line and end of line comments */
-		if((ptr = strchr(line, '#'))) {
-			*ptr = '\0';
-		}
-
-		line_len = strtrim(line);
-
-		if(line_len == 0) {
-			continue;
-		}
-
-		if(line[0] == '[' && line[line_len - 1] == ']') {
-			char *name;
-			/* only possibility here is a line == '[]' */
-			if(line_len <= 2) {
-				pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: bad section name.\n"),
-						file, linenum);
-				ret = 1;
-				goto cleanup;
-			}
-			/* new config section, skip the '[' */
-			name = strdup(line + 1);
-			name[line_len - 2] = '\0';
-			/* we're at a new section; perform any post-actions for the prior */
-			if(finish_section(section, parse_options)) {
-				ret = 1;
-				goto cleanup;
-			}
-			pm_printf(ALPM_LOG_DEBUG, "config: new section '%s'\n", name);
-			section->name = name;
-			section->is_options = (strcmp(name, "options") == 0);
-			continue;
-		}
-
-		/* directive */
-		/* strsep modifies the 'line' string: 'key \0 value' */
-		key = line;
-		value = line;
-		strsep(&value, "=");
-		strtrim(key);
-		strtrim(value);
-
-		if(key == NULL) {
-			pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: syntax error in config file- missing key.\n"),
-					file, linenum);
-			ret = 1;
-			goto cleanup;
-		}
-		/* For each directive, compare to the camelcase string. */
-		if(section->name == NULL) {
-			pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: All directives must belong to a section.\n"),
-					file, linenum);
-			ret = 1;
-			goto cleanup;
-		}
-		/* Include is allowed in both options and repo sections */
-		if(strcmp(key, "Include") == 0) {
-			glob_t globbuf;
-			int globret;
-			size_t gindex;
-
-			if(value == NULL) {
-				pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: directive '%s' needs a value\n"),
-						file, linenum, key);
-				ret = 1;
-				goto cleanup;
-			}
-			/* Ignore include failures... assume non-critical */
-			globret = glob(value, GLOB_NOCHECK, NULL, &globbuf);
-			switch(globret) {
-				case GLOB_NOSPACE:
-					pm_printf(ALPM_LOG_DEBUG,
-							"config file %s, line %d: include globbing out of space\n",
-							file, linenum);
-				break;
-				case GLOB_ABORTED:
-					pm_printf(ALPM_LOG_DEBUG,
-							"config file %s, line %d: include globbing read error for %s\n",
-							file, linenum, value);
-				break;
-				case GLOB_NOMATCH:
-					pm_printf(ALPM_LOG_DEBUG,
-							"config file %s, line %d: no include found for %s\n",
-							file, linenum, value);
-				break;
-				default:
-					for(gindex = 0; gindex < globbuf.gl_pathc; gindex++) {
-						pm_printf(ALPM_LOG_DEBUG, "config file %s, line %d: including %s\n",
-								file, linenum, globbuf.gl_pathv[gindex]);
-						_parseconfig(globbuf.gl_pathv[gindex], section, parse_options, depth + 1);
-					}
-				break;
-			}
-			globfree(&globbuf);
-			continue;
-		}
-		if(parse_options && section->is_options) {
-			/* we are either in options ... */
-			if((ret = _parse_options(key, value, file, linenum)) != 0) {
-				goto cleanup;
-			}
-		} else if(!parse_options && !section->is_options) {
-			/* ... or in a repo section */
-			if(strcmp(key, "Server") == 0) {
-				if(value == NULL) {
-					pm_printf(ALPM_LOG_ERROR, _("config file %s, line %d: directive '%s' needs a value\n"),
-							file, linenum, key);
-					ret = 1;
-					goto cleanup;
-				}
-				section->servers = alpm_list_add(section->servers, strdup(value));
-			} else if(strcmp(key, "SigLevel") == 0) {
-				alpm_list_t *values = NULL;
-				setrepeatingoption(value, "SigLevel", &values);
-				if(values) {
-					if(section->siglevel == ALPM_SIG_USE_DEFAULT) {
-						section->siglevel = config->siglevel;
-					}
-					if(process_siglevel(values, &section->siglevel, file, linenum)) {
-						FREELIST(values);
-						ret = 1;
-						goto cleanup;
-					}
-					FREELIST(values);
-				}
-			} else {
-				pm_printf(ALPM_LOG_WARNING,
-						_("config file %s, line %d: directive '%s' in section '%s' not recognized.\n"),
-						file, linenum, key, section->name);
-			}
-		}
+	if(section->parse_options && section->is_options) {
+		/* we are either in options ... */
+		return _parse_options(key, value, file, linenum);
+	} else if(!section->parse_options && !section->is_options) {
+		/* ... or in a repo section */
+		return _parse_repo(key, value, file, linenum, section);
 	}
 
-	if(depth == 0) {
-		ret = finish_section(section, parse_options);
-	}
-
-cleanup:
-	if(fp) {
-		fclose(fp);
-	}
-	pm_printf(ALPM_LOG_DEBUG, "config: finished parsing %s\n", file);
-	return ret;
+	return 0;
 }
 
 /** Parse a configuration file.
@@ -1003,13 +960,15 @@ int parseconfig(const char *file)
 	struct section_t section;
 	memset(&section, 0, sizeof(struct section_t));
 	section.siglevel = ALPM_SIG_USE_DEFAULT;
+	section.usage = 0;
 	/* the config parse is a two-pass affair. We first parse the entire thing for
 	 * the [options] section so we can get all default and path options set.
 	 * Next, we go back and parse everything but [options]. */
 
 	/* call the real parseconfig function with a null section & db argument */
 	pm_printf(ALPM_LOG_DEBUG, "parseconfig: options pass\n");
-	if((ret = _parseconfig(file, &section, 1, 0))) {
+	section.parse_options = 1;
+	if((ret = parse_ini(file, _parse_directive, &section))) {
 		return ret;
 	}
 	if((ret = setup_libalpm())) {
@@ -1017,7 +976,8 @@ int parseconfig(const char *file)
 	}
 	/* second pass, repo section parsing */
 	pm_printf(ALPM_LOG_DEBUG, "parseconfig: repo pass\n");
-	return _parseconfig(file, &section, 0, 0);
+	section.parse_options = 0;
+	return parse_ini(file, _parse_directive, &section);
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

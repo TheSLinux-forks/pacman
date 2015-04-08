@@ -23,17 +23,26 @@ declare -r myname='updpkgsums'
 declare -r myver='@PACKAGE_VERSION@'
 
 usage() {
-	printf 'usage: %s [buildfile]\n\n' "$myname"
-	printf '    -h, --help        display this help message and exit\n'
-	printf '    -V, --version     display version information and exit\n\n'
-	printf '%s will perform an in place update the checksums in the\n' "$myname"
-	printf 'path specified by [buildfile], defaulting to PKGBUILD in the current\n'
-	printf 'working directory.\n'
+	printf "%s (pacman) v%s\n" "${myname}" "${myver}"
+	echo
+	printf "%s will perform an in place update of the checksums in the\n" "${myname}"
+	echo "path specified by [build file], defaulting to PKGBUILD in the current"
+	echo "working directory."
+	echo
+	printf "Usage: %s [build file]\n" "${myname}"
+	echo
+	echo "    -h, --help        display this help message and exit"
+	echo "    -V, --version     display version information and exit"
 }
 
 version() {
 	printf "%s %s\n" "$myname" "$myver"
 	echo 'Copyright (C) 2012-2013 Dave Reisner <dreisner@archlinux.org>'
+}
+
+die() {
+	printf "==> ERROR: $1\n" "${@:2}" >&2
+	exit 1
 }
 
 case $1 in
@@ -43,8 +52,7 @@ esac
 
 buildfile=${1:-PKGBUILD}
 if [[ ! -f $buildfile ]]; then
-	printf '==> ERROR: %s not found or is not a file\n' "$buildfile"
-	exit 1
+	die "%s not found or is not a file" "$buildfile"
 fi
 
 # Resolve any symlinks to avoid replacing the symlink with a file. But, we
@@ -67,17 +75,17 @@ fi
 
 # Check $PWD/ for permission to unlink the $buildfile and write a new one
 if [[ ! -w . ]]; then
-	printf $'==> ERROR: No write permission in `%s\'\n' "$PWD"
-	exit 1
+	die "No write permission in '%s'" "$PWD"
 fi
 
-{
-	# Generate the new sums and try to unlink the file before writing stdin back
-	# into it. This final precaution shouldn't fail based on the previous checks,
-	# but it's better to be extra careful before unlinking files.
-	newsums=$(makepkg -g -p "$buildfile") && rm -f "$buildfile" &&
-	exec awk -v newsums="$newsums" '
-	/^[[:blank:]]*(md|sha)[[:digit:]]+sums=/,/\)[[:blank:]]*(#.*)?$/ {
+# Generate the new sums
+export BUILDDIR=$(mktemp -d --tmpdir updpkgsums.XXXXXX)
+newbuildfile=$(mktemp --tmpdir updpkgsums.XXXXXX)
+
+trap "rm -rf '$BUILDDIR' '$newbuildfile'" EXIT
+newsums=$(makepkg -g -p "$buildfile") || die 'Failed to generate new checksums'
+awk -v newsums="$newsums" '
+	/^[[:blank:]]*(md|sha)[[:digit:]]+sums(_[^=]+)?=/,/\)[[:blank:]]*(#.*)?$/ {
 		if (!w) {
 			print newsums
 			w++
@@ -87,7 +95,12 @@ fi
 
 	1
 	END { if (!w) print newsums }
-	' > "$buildfile"
-} < "$buildfile"
+' "$buildfile" > "$newbuildfile" || die 'Failed to write new PKGBUILD'
 
-# vim: set ts=2 sw=2 noet:
+# Rewrite the original buildfile. Use cat instead of mv/cp to preserve
+# permissions implicitly.
+if ! cat -- "$newbuildfile" >"$buildfile"; then
+	die "Failed to update %s. The file has not been modified." "$buildfile"
+fi
+
+# vim: set noet:

@@ -1,7 +1,7 @@
 /*
  *  callback.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -25,11 +25,10 @@
 #include <alpm.h>
 
 /* callback to handle messages/notifications from libalpm */
-void cb_event(alpm_event_t event, void *data1, void *data2);
+void cb_event(alpm_event_t *event);
 
 /* callback to handle questions from libalpm (yes/no) */
-void cb_question(alpm_question_t event, void *data1, void *data2,
-                   void *data3, int *response);
+void cb_question(alpm_question_t *question);
 
 /* callback to handle display of progress */
 void cb_progress(alpm_progress_t event, const char *pkgname, int percent,
@@ -46,4 +45,4 @@ void cb_log(alpm_loglevel_t level, const char *fmt, va_list args);
 
 #endif /* _PM_CALLBACK_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

@@ -1,7 +1,7 @@
 /*
  *  callback.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,8 +21,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/time.h>
+#include <sys/time.h> /* gettimeofday */
 #include <sys/types.h> /* off_t */
+#include <stdint.h> /* int64_t */
 #include <time.h>
 #include <unistd.h>
 #include <wchar.h>
@@ -47,6 +48,24 @@ static alpm_list_t *output = NULL;
 /* update speed for the fill_progress based functions */
 #define UPDATE_SPEED_MS 200
 
+#if !defined(CLOCK_MONOTONIC_COARSE) && defined(CLOCK_MONOTONIC)
+#define CLOCK_MONOTONIC_COARSE CLOCK_MONOTONIC
+#endif
+
+static int64_t get_time_ms(void)
+{
+#if defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0) && defined(CLOCK_MONOTONIC_COARSE)
+	struct timespec ts = {0, 0};
+	clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+	return (ts.tv_sec * 1000) + (ts.tv_nsec / 1000000);
+#else
+	/* darwin doesn't support clock_gettime, fallback to gettimeofday */
+	struct timeval tv = {0, 0};
+	gettimeofday(&tv, NULL);
+	return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+#endif
+}
+
 /**
  * Silly little helper function, determines if the caller needs a visual update
  * since the last time this function was called.
@@ -54,27 +73,20 @@ static alpm_list_t *output = NULL;
  * @param first_call 1 on first call for initialization purposes, 0 otherwise
  * @return number of milliseconds since last call
  */
-static long get_update_timediff(int first_call)
+static int64_t get_update_timediff(int first_call)
 {
-	long retval = 0;
-	static struct timeval last_time = {0, 0};
+	int64_t retval = 0;
+	static int64_t last_time = 0;
 
 	/* on first call, simply set the last time and return */
 	if(first_call) {
-		gettimeofday(&last_time, NULL);
+		last_time = get_time_ms();
 	} else {
-		struct timeval this_time;
-		time_t diff_sec;
-		suseconds_t diff_usec;
-
-		gettimeofday(&this_time, NULL);
-		diff_sec = this_time.tv_sec - last_time.tv_sec;
-		diff_usec = this_time.tv_usec - last_time.tv_usec;
-
-		retval = (diff_sec * 1000) + (diff_usec / 1000);
+		int64_t this_time = get_time_ms();
+		retval = this_time - last_time;
 
 		/* do not update last_time if interval was too short */
-		if(retval >= UPDATE_SPEED_MS) {
+		if(retval < 0 || retval >= UPDATE_SPEED_MS) {
 			last_time = this_time;
 		}
 	}
@@ -148,17 +160,15 @@ static void fill_progress(const int bar_percent, const int disp_percent,
 	fflush(stdout);
 }
 
-
-
 /* callback to handle messages/notifications from libalpm transactions */
-void cb_event(alpm_event_t event, void *data1, void *data2)
+void cb_event(alpm_event_t *event)
 {
 	if(config->print) {
 		return;
 	}
-	switch(event) {
+	switch(event->type) {
 		case ALPM_EVENT_CHECKDEPS_START:
-		  printf(_("checking dependencies...\n"));
+			printf(_("checking dependencies...\n"));
 			break;
 		case ALPM_EVENT_FILECONFLICTS_START:
 			if(config->noprogressbar) {
@@ -169,67 +179,46 @@ void cb_event(alpm_event_t event, void *data1, void *data2)
 			printf(_("resolving dependencies...\n"));
 			break;
 		case ALPM_EVENT_INTERCONFLICTS_START:
-			printf(_("looking for inter-conflicts...\n"));
+			printf(_("looking for conflicting packages...\n"));
 			break;
-		case ALPM_EVENT_ADD_START:
+		case ALPM_EVENT_PACKAGE_OPERATION_START:
 			if(config->noprogressbar) {
-				printf(_("installing %s...\n"), alpm_pkg_get_name(data1));
+				alpm_event_package_operation_t *e = &event->package_operation;
+				switch(e->operation) {
+					case ALPM_PACKAGE_INSTALL:
+						printf(_("installing %s...\n"), alpm_pkg_get_name(e->newpkg));
+						break;
+					case ALPM_PACKAGE_UPGRADE:
+						printf(_("upgrading %s...\n"), alpm_pkg_get_name(e->newpkg));
+						break;
+					case ALPM_PACKAGE_REINSTALL:
+						printf(_("reinstalling %s...\n"), alpm_pkg_get_name(e->newpkg));
+						break;
+					case ALPM_PACKAGE_DOWNGRADE:
+						printf(_("downgrading %s...\n"), alpm_pkg_get_name(e->newpkg));
+						break;
+					case ALPM_PACKAGE_REMOVE:
+						printf(_("removing %s...\n"), alpm_pkg_get_name(e->oldpkg));
+						break;
+				}
 			}
 			break;
-		case ALPM_EVENT_ADD_DONE:
-			alpm_logaction(config->handle, PACMAN_CALLER_PREFIX,
-					"installed %s (%s)\n",
-					alpm_pkg_get_name(data1),
-					alpm_pkg_get_version(data1));
-			display_optdepends(data1);
-			break;
-		case ALPM_EVENT_REMOVE_START:
-			if(config->noprogressbar) {
-			printf(_("removing %s...\n"), alpm_pkg_get_name(data1));
+		case ALPM_EVENT_PACKAGE_OPERATION_DONE:
+			{
+				alpm_event_package_operation_t *e = &event->package_operation;
+				switch(e->operation) {
+					case ALPM_PACKAGE_INSTALL:
+						display_optdepends(e->newpkg);
+						break;
+					case ALPM_PACKAGE_UPGRADE:
+					case ALPM_PACKAGE_DOWNGRADE:
+						display_new_optdepends(e->oldpkg, e->newpkg);
+						break;
+					case ALPM_PACKAGE_REINSTALL:
+					case ALPM_PACKAGE_REMOVE:
+						break;
+				}
 			}
-			break;
-		case ALPM_EVENT_REMOVE_DONE:
-			alpm_logaction(config->handle, PACMAN_CALLER_PREFIX,
-					"removed %s (%s)\n",
-					alpm_pkg_get_name(data1),
-					alpm_pkg_get_version(data1));
-			break;
-		case ALPM_EVENT_UPGRADE_START:
-			if(config->noprogressbar) {
-				printf(_("upgrading %s...\n"), alpm_pkg_get_name(data1));
-			}
-			break;
-		case ALPM_EVENT_UPGRADE_DONE:
-			alpm_logaction(config->handle, PACMAN_CALLER_PREFIX,
-					"upgraded %s (%s -> %s)\n",
-					alpm_pkg_get_name(data1),
-					alpm_pkg_get_version(data2),
-					alpm_pkg_get_version(data1));
-			display_new_optdepends(data2, data1);
-			break;
-		case ALPM_EVENT_DOWNGRADE_START:
-			if(config->noprogressbar) {
-				printf(_("downgrading %s...\n"), alpm_pkg_get_name(data1));
-			}
-			break;
-		case ALPM_EVENT_DOWNGRADE_DONE:
-			alpm_logaction(config->handle, PACMAN_CALLER_PREFIX,
-					"downgraded %s (%s -> %s)\n",
-					alpm_pkg_get_name(data1),
-					alpm_pkg_get_version(data2),
-					alpm_pkg_get_version(data1));
-			display_new_optdepends(data2, data1);
-			break;
-		case ALPM_EVENT_REINSTALL_START:
-			if(config->noprogressbar) {
-				printf(_("reinstalling %s...\n"), alpm_pkg_get_name(data1));
-			}
-			break;
-		case ALPM_EVENT_REINSTALL_DONE:
-			alpm_logaction(config->handle, PACMAN_CALLER_PREFIX,
-					"reinstalled %s (%s)\n",
-					alpm_pkg_get_name(data1),
-					alpm_pkg_get_version(data1));
 			break;
 		case ALPM_EVENT_INTEGRITY_START:
 			if(config->noprogressbar) {
@@ -256,7 +245,9 @@ void cb_event(alpm_event_t event, void *data1, void *data2)
 			printf(_("applying deltas...\n"));
 			break;
 		case ALPM_EVENT_DELTA_PATCH_START:
-			printf(_("generating %s with %s... "), (char *)data1, (char *)data2);
+			printf(_("generating %s with %s... "),
+					event->delta_patch.delta->to,
+					event->delta_patch.delta->delta);
 			break;
 		case ALPM_EVENT_DELTA_PATCH_DONE:
 			printf(_("success!\n"));
@@ -265,7 +256,7 @@ void cb_event(alpm_event_t event, void *data1, void *data2)
 			printf(_("failed.\n"));
 			break;
 		case ALPM_EVENT_SCRIPTLET_INFO:
-			fputs((const char *)data1, stdout);
+			fputs(event->scriptlet_info.line, stdout);
 			break;
 		case ALPM_EVENT_RETRIEVE_START:
 			colon_printf(_("Retrieving packages ...\n"));
@@ -275,14 +266,67 @@ void cb_event(alpm_event_t event, void *data1, void *data2)
 				printf(_("checking available disk space...\n"));
 			}
 			break;
-		case ALPM_EVENT_OPTDEP_REQUIRED:
-			colon_printf(_("%s optionally requires %s\n"), alpm_pkg_get_name(data1),
-				alpm_dep_compute_string(data2));
+		case ALPM_EVENT_OPTDEP_REMOVAL:
+			{
+				alpm_event_optdep_removal_t *e = &event->optdep_removal;
+				colon_printf(_("%s optionally requires %s\n"),
+						alpm_pkg_get_name(e->pkg),
+						alpm_dep_compute_string(e->optdep));
+			}
 			break;
 		case ALPM_EVENT_DATABASE_MISSING:
 			if(!config->op_s_sync) {
 				pm_printf(ALPM_LOG_WARNING,
-					"database file for '%s' does not exist\n", (char *)data1);
+					"database file for '%s' does not exist\n",
+					event->database_missing.dbname);
+			}
+			break;
+		case ALPM_EVENT_PACNEW_CREATED:
+			{
+				alpm_event_pacnew_created_t *e = &event->pacnew_created;
+				if(on_progress) {
+					char *string = NULL;
+					pm_sprintf(&string, ALPM_LOG_WARNING, _("%s installed as %s.pacnew\n"),
+							e->file, e->file);
+					if(string != NULL) {
+						output = alpm_list_add(output, string);
+					}
+				} else {
+					pm_printf(ALPM_LOG_WARNING, _("%s installed as %s.pacnew\n"),
+							e->file, e->file);
+				}
+			}
+			break;
+		case ALPM_EVENT_PACSAVE_CREATED:
+			{
+				alpm_event_pacsave_created_t *e = &event->pacsave_created;
+				if(on_progress) {
+					char *string = NULL;
+					pm_sprintf(&string, ALPM_LOG_WARNING, _("%s saved as %s.pacsave\n"),
+							e->file, e->file);
+					if(string != NULL) {
+						output = alpm_list_add(output, string);
+					}
+				} else {
+					pm_printf(ALPM_LOG_WARNING, _("%s saved as %s.pacsave\n"),
+							e->file, e->file);
+				}
+			}
+			break;
+		case ALPM_EVENT_PACORIG_CREATED:
+			{
+				alpm_event_pacorig_created_t *e = &event->pacorig_created;
+				if(on_progress) {
+					char *string = NULL;
+					pm_sprintf(&string, ALPM_LOG_WARNING, _("%s saved as %s.pacorig\n"),
+							e->file, e->file);
+					if(string != NULL) {
+						output = alpm_list_add(output, string);
+					}
+				} else {
+					pm_printf(ALPM_LOG_WARNING, _("%s saved as %s.pacorig\n"),
+							e->file, e->file);
+				}
 			}
 			break;
 		/* all the simple done events, with fallthrough for each */
@@ -297,6 +341,12 @@ void cb_event(alpm_event_t event, void *data1, void *data2)
 		case ALPM_EVENT_DELTA_INTEGRITY_DONE:
 		case ALPM_EVENT_DELTA_PATCHES_DONE:
 		case ALPM_EVENT_DISKSPACE_DONE:
+		case ALPM_EVENT_RETRIEVE_DONE:
+		case ALPM_EVENT_RETRIEVE_FAILED:
+		/* we can safely ignore those as well */
+		case ALPM_EVENT_PKGDOWNLOAD_START:
+		case ALPM_EVENT_PKGDOWNLOAD_DONE:
+		case ALPM_EVENT_PKGDOWNLOAD_FAILED:
 			/* nothing */
 			break;
 	}
@@ -304,50 +354,62 @@ void cb_event(alpm_event_t event, void *data1, void *data2)
 }
 
 /* callback to handle questions from libalpm transactions (yes/no) */
-/* TODO this is one of the worst ever functions written. void *data ? wtf */
-void cb_question(alpm_question_t event, void *data1, void *data2,
-                   void *data3, int *response)
+void cb_question(alpm_question_t *question)
 {
 	if(config->print) {
+		if(question->type == ALPM_QUESTION_INSTALL_IGNOREPKG) {
+			question->any.answer = 1;
+		} else {
+			question->any.answer = 0;
+		}
 		return;
 	}
-	switch(event) {
+	switch(question->type) {
 		case ALPM_QUESTION_INSTALL_IGNOREPKG:
-			if(!config->op_s_downloadonly) {
-				*response = yesno(_("%s is in IgnorePkg/IgnoreGroup. Install anyway?"),
-								  alpm_pkg_get_name(data1));
-			} else {
-				*response = 1;
+			{
+				alpm_question_install_ignorepkg_t *q = &question->install_ignorepkg;
+				if(!config->op_s_downloadonly) {
+					q->install = yesno(_("%s is in IgnorePkg/IgnoreGroup. Install anyway?"),
+							alpm_pkg_get_name(q->pkg));
+				} else {
+					q->install = 1;
+				}
 			}
 			break;
 		case ALPM_QUESTION_REPLACE_PKG:
-			*response = yesno(_("Replace %s with %s/%s?"),
-					alpm_pkg_get_name(data1),
-					(char *)data3,
-					alpm_pkg_get_name(data2));
+			{
+				alpm_question_replace_t *q = &question->replace;
+				q->replace = yesno(_("Replace %s with %s/%s?"),
+						alpm_pkg_get_name(q->oldpkg),
+						alpm_db_get_name(q->newdb),
+						alpm_pkg_get_name(q->newpkg));
+			}
 			break;
 		case ALPM_QUESTION_CONFLICT_PKG:
-			/* data parameters: target package, local package, conflict (strings) */
-			/* print conflict only if it contains new information */
-			if(strcmp(data1, data3) == 0 || strcmp(data2, data3) == 0) {
-				*response = noyes(_("%s and %s are in conflict. Remove %s?"),
-						(char *)data1,
-						(char *)data2,
-						(char *)data2);
-			} else {
-				*response = noyes(_("%s and %s are in conflict (%s). Remove %s?"),
-						(char *)data1,
-						(char *)data2,
-						(char *)data3,
-						(char *)data2);
+			{
+				alpm_question_conflict_t *q = &question->conflict;
+				/* print conflict only if it contains new information */
+				if(strcmp(q->conflict->package1, q->conflict->reason->name) == 0
+						|| strcmp(q->conflict->package2, q->conflict->reason->name) == 0) {
+					q->remove = noyes(_("%s and %s are in conflict. Remove %s?"),
+							q->conflict->package1,
+							q->conflict->package2,
+							q->conflict->package2);
+				} else {
+					q->remove = noyes(_("%s and %s are in conflict (%s). Remove %s?"),
+							q->conflict->package1,
+							q->conflict->package2,
+							q->conflict->reason->name,
+							q->conflict->package2);
+				}
 			}
 			break;
 		case ALPM_QUESTION_REMOVE_PKGS:
 			{
-				alpm_list_t *unresolved = data1;
+				alpm_question_remove_pkgs_t *q = &question->remove_pkgs;
 				alpm_list_t *namelist = NULL, *i;
 				size_t count = 0;
-				for(i = unresolved; i; i = i->next) {
+				for(i = q->packages; i; i = i->next) {
 					namelist = alpm_list_add(namelist,
 							(char *)alpm_pkg_get_name(i->data));
 					count++;
@@ -356,9 +418,9 @@ void cb_question(alpm_question_t event, void *data1, void *data2,
 							"The following package cannot be upgraded due to unresolvable dependencies:\n",
 							"The following packages cannot be upgraded due to unresolvable dependencies:\n",
 							count));
-				list_display("     ", namelist, getcols(fileno(stdout)));
+				list_display("     ", namelist, getcols());
 				printf("\n");
-				*response = noyes(_n(
+				q->skip = noyes(_n(
 							"Do you want to skip the above package for this upgrade?",
 							"Do you want to skip the above packages for this upgrade?",
 							count));
@@ -367,52 +429,46 @@ void cb_question(alpm_question_t event, void *data1, void *data2,
 			break;
 		case ALPM_QUESTION_SELECT_PROVIDER:
 			{
-				alpm_list_t *providers = data1;
-				size_t count = alpm_list_count(providers);
-				char *depstring = alpm_dep_compute_string((alpm_depend_t *)data2);
+				alpm_question_select_provider_t *q = &question->select_provider;
+				size_t count = alpm_list_count(q->providers);
+				char *depstring = alpm_dep_compute_string(q->depend);
 				colon_printf(_("There are %zd providers available for %s:\n"), count,
 						depstring);
 				free(depstring);
-				select_display(providers);
-				*response = select_question(count);
-			}
-			break;
-		case ALPM_QUESTION_LOCAL_NEWER:
-			if(!config->op_s_downloadonly) {
-				*response = yesno(_("%s-%s: local version is newer. Upgrade anyway?"),
-						alpm_pkg_get_name(data1),
-						alpm_pkg_get_version(data1));
-			} else {
-				*response = 1;
+				select_display(q->providers);
+				q->use_index = select_question(count);
 			}
 			break;
 		case ALPM_QUESTION_CORRUPTED_PKG:
-			*response = yesno(_("File %s is corrupted (%s).\n"
-						"Do you want to delete it?"),
-					(char *)data1,
-					alpm_strerror(*(alpm_errno_t *)data2));
+			{
+				alpm_question_corrupted_t *q = &question->corrupted;
+				q->remove = yesno(_("File %s is corrupted (%s).\n"
+							"Do you want to delete it?"),
+						q->filepath,
+						alpm_strerror(q->reason));
+			}
 			break;
 		case ALPM_QUESTION_IMPORT_KEY:
 			{
-				alpm_pgpkey_t *key = data1;
+				alpm_question_import_key_t *q = &question->import_key;
 				char created[12];
-				const char *revoked = "";
-				time_t time = (time_t)key->created;
+				time_t time = (time_t)q->key->created;
 				strftime(created, 12, "%Y-%m-%d", localtime(&time));
 
-				if(key->revoked) {
-					revoked = " (revoked)";
+				if(q->key->revoked) {
+					q->import = yesno(_("Import PGP key %d%c/%s, \"%s\", created: %s (revoked)?"),
+							q->key->length, q->key->pubkey_algo, q->key->fingerprint, q->key->uid, created);
+				} else {
+					q->import = yesno(_("Import PGP key %d%c/%s, \"%s\", created: %s?"),
+							q->key->length, q->key->pubkey_algo, q->key->fingerprint, q->key->uid, created);
 				}
-
-				*response = yesno(_("Import PGP key %d%c/%s, \"%s\", created: %s%s?"),
-						key->length, key->pubkey_algo, key->fingerprint, key->uid, created, revoked);
 			}
 			break;
 	}
 	if(config->noask) {
-		if(config->ask & event) {
+		if(config->ask & question->type) {
 			/* inverse the default answer */
-			*response = !*response;
+			question->any.answer = !question->any.answer;
 		}
 	}
 }
@@ -432,7 +488,7 @@ void cb_progress(alpm_progress_t event, const char *pkgname, int percent,
 	int len, wclen, wcwid, padwid;
 	wchar_t *wcstr;
 
-	const unsigned short cols = getcols(fileno(stdout));
+	const unsigned short cols = getcols();
 
 	if(config->noprogressbar || cols == 0) {
 		return;
@@ -558,10 +614,11 @@ void cb_progress(alpm_progress_t event, const char *pkgname, int percent,
 	if(percent == 100) {
 		alpm_list_t *i = NULL;
 		on_progress = 0;
-		for(i = output; i; i = i->next) {
-			fputs((const char *)i->data, stdout);
-		}
 		fflush(stdout);
+		for(i = output; i; i = i->next) {
+			fputs((const char *)i->data, stderr);
+		}
+		fflush(stderr);
 		FREELIST(output);
 	} else {
 		on_progress = 1;
@@ -584,7 +641,7 @@ void cb_dl_progress(const char *filename, off_t file_xfered, off_t file_total)
 {
 	static double rate_last;
 	static off_t xfered_last;
-	static struct timeval initial_time;
+	static int64_t initial_time = 0;
 	int infolen;
 	int filenamelen;
 	char *fname, *p;
@@ -595,13 +652,12 @@ void cb_dl_progress(const char *filename, off_t file_xfered, off_t file_total)
 	int totaldownload = 0;
 	off_t xfered, total;
 	double rate = 0.0;
-	long timediff = 0;
 	unsigned int eta_h = 0, eta_m = 0, eta_s = 0;
 	double rate_human, xfered_human;
 	const char *rate_label, *xfered_label;
 	int file_percent = 0, total_percent = 0;
 
-	const unsigned short cols = getcols(fileno(stdout));
+	const unsigned short cols = getcols();
 
 	if(config->noprogressbar || cols == 0 || file_total == -1) {
 		if(file_xfered == 0) {
@@ -636,7 +692,7 @@ void cb_dl_progress(const char *filename, off_t file_xfered, off_t file_total)
 	}
 
 	/* bogus values : stop here */
-	if(xfered > total) {
+	if(xfered > total || xfered < 0) {
 		return;
 	}
 
@@ -646,21 +702,14 @@ void cb_dl_progress(const char *filename, off_t file_xfered, off_t file_total)
 		/* set default starting values, ensure we only call this once
 		 * if TotalDownload is enabled */
 		if(!totaldownload || (totaldownload && list_xfered == 0)) {
-			gettimeofday(&initial_time, NULL);
+			initial_time = get_time_ms();
 			xfered_last = (off_t)0;
 			rate_last = 0.0;
 			get_update_timediff(1);
 		}
 	} else if(file_xfered == file_total) {
 		/* compute final values */
-		struct timeval current_time;
-		time_t diff_sec;
-		suseconds_t diff_usec;
-
-		gettimeofday(&current_time, NULL);
-		diff_sec = current_time.tv_sec - initial_time.tv_sec;
-		diff_usec = current_time.tv_usec - initial_time.tv_usec;
-		timediff = (diff_sec * 1000) + (diff_usec / 1000);
+		int64_t timediff = get_time_ms() - initial_time;
 		if(timediff > 0) {
 			rate = (double)xfered / (timediff / 1000.0);
 			/* round elapsed time (in ms) to the nearest second */
@@ -670,7 +719,7 @@ void cb_dl_progress(const char *filename, off_t file_xfered, off_t file_total)
 		}
 	} else {
 		/* compute current average values */
-		timediff = get_update_timediff(0);
+		int64_t timediff = get_update_timediff(0);
 
 		if(timediff < UPDATE_SPEED_MS) {
 			/* return if the calling interval was too short */
@@ -728,7 +777,7 @@ void cb_dl_progress(const char *filename, off_t file_xfered, off_t file_total)
 	fname[len] = '\0';
 
 	/* 1 space + filenamelen + 1 space + 6 for size + 1 space + 3 for label +
-	 * + 2 spaces + 4 for rate  + 1 for label + 2 for /s + 1 space +
+	 * + 2 spaces + 4 for rate + 1 for label + 2 for /s + 1 space +
 	 * 8 for eta, gives us the magic 30 */
 	filenamelen = infolen - 30;
 	/* see printf() code, we omit 'HH:' in these conditions */
@@ -813,4 +862,4 @@ void cb_log(alpm_loglevel_t level, const char *fmt, va_list args)
 	}
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

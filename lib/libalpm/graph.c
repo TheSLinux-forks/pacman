@@ -1,7 +1,7 @@
 /*
  *  graph.c - helpful graph structure and setup/teardown methods
  *
- *  Copyright (c) 2007-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2007-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -36,4 +36,4 @@ void _alpm_graph_free(void *data)
 	free(graph);
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

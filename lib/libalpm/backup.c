@@ -1,7 +1,7 @@
 /*
  *  backup.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2005 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -87,10 +87,15 @@ alpm_backup_t *_alpm_backup_dup(const alpm_backup_t *backup)
 	alpm_backup_t *newbackup;
 	CALLOC(newbackup, 1, sizeof(alpm_backup_t), return NULL);
 
-	STRDUP(newbackup->name, backup->name, return NULL);
-	STRDUP(newbackup->hash, backup->hash, return NULL);
+	STRDUP(newbackup->name, backup->name, goto error);
+	STRDUP(newbackup->hash, backup->hash, goto error);
 
 	return newbackup;
+
+error:
+	free(newbackup->name);
+	free(newbackup);
+	return NULL;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

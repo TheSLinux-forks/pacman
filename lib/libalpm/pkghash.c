@@ -1,7 +1,7 @@
 /*
  *  pkghash.c
  *
- *  Copyright (c) 2011-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2011-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -172,10 +172,7 @@ static alpm_pkghash_t *pkghash_add_pkg(alpm_pkghash_t *hash, alpm_pkg_t *pkg,
 
 	position = get_hash_position(pkg->name_hash, hash);
 
-	ptr = malloc(sizeof(alpm_list_t));
-	if(ptr == NULL) {
-		return hash;
-	}
+	MALLOC(ptr, sizeof(alpm_list_t), return hash);
 
 	ptr->data = pkg;
 	ptr->prev = ptr;
@@ -348,4 +345,4 @@ alpm_pkg_t *_alpm_pkghash_find(alpm_pkghash_t *hash, const char *name)
 	return NULL;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

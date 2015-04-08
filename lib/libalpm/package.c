@@ -1,7 +1,7 @@
 /*
  *  package.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005, 2006 by Christian Hamar <krics@linuxforum.hu>
@@ -574,12 +574,13 @@ int _alpm_pkg_dup(alpm_pkg_t *pkg, alpm_pkg_t **new_ptr)
 	newpkg->installdate = pkg->installdate;
 	STRDUP(newpkg->packager, pkg->packager, goto cleanup);
 	STRDUP(newpkg->md5sum, pkg->md5sum, goto cleanup);
-	STRDUP(newpkg->sha256sum, pkg->md5sum, goto cleanup);
+	STRDUP(newpkg->sha256sum, pkg->sha256sum, goto cleanup);
 	STRDUP(newpkg->arch, pkg->arch, goto cleanup);
 	newpkg->size = pkg->size;
 	newpkg->isize = pkg->isize;
 	newpkg->scriptlet = pkg->scriptlet;
 	newpkg->reason = pkg->reason;
+	newpkg->validation = pkg->validation;
 
 	newpkg->licenses   = alpm_list_strdup(pkg->licenses);
 	newpkg->replaces   = list_depdup(pkg->replaces);
@@ -606,16 +607,13 @@ int _alpm_pkg_dup(alpm_pkg_t *pkg, alpm_pkg_t **new_ptr)
 			}
 		}
 		newpkg->files.count = pkg->files.count;
-		/* deliberately do not copy resolved_path as this is only used
-		 * during conflict checking and the sorting of list does not readily
-		 * allow keeping its efficient memory usage when copying */
 	}
 
 	/* internal */
 	newpkg->infolevel = pkg->infolevel;
 	newpkg->origin = pkg->origin;
 	if(newpkg->origin == ALPM_PKG_FROM_FILE) {
-		newpkg->origin_data.file = strdup(pkg->origin_data.file);
+		STRDUP(newpkg->origin_data.file, pkg->origin_data.file, goto cleanup);
 	} else {
 		newpkg->origin_data.db = pkg->origin_data.db;
 	}
@@ -632,7 +630,7 @@ cleanup:
 
 static void free_deplist(alpm_list_t *deps)
 {
-	alpm_list_free_inner(deps, (alpm_list_fn_free)_alpm_dep_free);
+	alpm_list_free_inner(deps, (alpm_list_fn_free)alpm_dep_free);
 	alpm_list_free(deps);
 }
 
@@ -657,22 +655,9 @@ void _alpm_pkg_free(alpm_pkg_t *pkg)
 	free_deplist(pkg->replaces);
 	FREELIST(pkg->groups);
 	if(pkg->files.count) {
-		size_t i, j, k;
-		if(pkg->files.resolved_path) {
-			for(i = 0, j = 0; i < pkg->files.count; i++) {
-				for(k = j; k <= pkg->files.count; k++) {
-					if(pkg->files.resolved_path[i] == pkg->files.files[k].name) {
-						pkg->files.files[k].name = NULL;
-						j = k + 1;
-						break;
-					}
-				}
-				free(pkg->files.resolved_path[i]);
-			}
-			free(pkg->files.resolved_path);
-		}
-		for(j = 0; j < pkg->files.count; j++) {
-			FREE(pkg->files.files[j].name);
+		size_t i;
+		for(i = 0; i < pkg->files.count; i++) {
+			FREE(pkg->files.files[i].name);
 		}
 		free(pkg->files.files);
 	}
@@ -769,7 +754,7 @@ alpm_pkg_t SYMEXPORT *alpm_pkg_find(alpm_list_t *haystack, const char *needle)
  *
  * @return 1 if the package should be ignored, 0 otherwise
  */
-int _alpm_pkg_should_ignore(alpm_handle_t *handle, alpm_pkg_t *pkg)
+int SYMEXPORT alpm_pkg_should_ignore(alpm_handle_t *handle, alpm_pkg_t *pkg)
 {
 	alpm_list_t *groups = NULL;
 
@@ -789,4 +774,4 @@ int _alpm_pkg_should_ignore(alpm_handle_t *handle, alpm_pkg_t *pkg)
 	return 0;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

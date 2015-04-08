@@ -1,7 +1,7 @@
 /*
  *  alpm_list.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,6 +21,10 @@
 #define _ALPM_LIST_H
 
 #include <stdlib.h> /* size_t */
+
+/* Note: alpm_list.{c,h} are intended to be standalone files. Do not include
+ * any other libalpm headers.
+ */
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,4 +91,4 @@ void *alpm_list_to_array(const alpm_list_t *list, size_t n, size_t size);
 #endif
 #endif /* _ALPM_LIST_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

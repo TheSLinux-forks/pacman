@@ -24,22 +24,29 @@ backup=()
 options=()
 install=
 changelog=
-source=($pkgname-$pkgver.tar.gz)
+source=("$pkgname-$pkgver.tar.gz"
+        "$pkgname-$pkgver.patch")
 noextract=()
-md5sums=() #generate with 'makepkg -g'
+md5sums=()
+validpgpkeys=()
+
+prepare() {
+	cd "$pkgname-$pkgver"
+	patch -p1 -i "$srcdir/$pkgname-$pkgver.patch"
+}
 
 build() {
-	cd "$srcdir/$pkgname-$pkgver"
+	cd "$pkgname-$pkgver"
 	./configure --prefix=/usr
 	make
 }
 
 check() {
-	cd "$srcdir/$pkgname-$pkgver"
+	cd "$pkgname-$pkgver"
 	make -k check
 }
 
 package() {
-	cd "$srcdir/$pkgname-$pkgver"
+	cd "$pkgname-$pkgver"
 	make DESTDIR="$pkgdir/" install
 }

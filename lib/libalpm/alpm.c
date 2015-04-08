@@ -1,7 +1,7 @@
 /*
  *  alpm.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -155,4 +155,4 @@ enum alpm_caps SYMEXPORT alpm_capabilities(void)
 		| 0;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

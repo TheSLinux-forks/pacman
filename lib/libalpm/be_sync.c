@@ -1,7 +1,7 @@
 /*
  *  be_sync.c : backend for sync databases
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <unistd.h>
 
 /* libarchive */
@@ -88,9 +89,13 @@ static int sync_db_validate(alpm_db_t *db)
 
 	/* we can skip any validation if the database doesn't exist */
 	if(_alpm_access(db->handle, NULL, dbpath, R_OK) != 0 && errno == ENOENT) {
+		alpm_event_database_missing_t event = {
+			.type = ALPM_EVENT_DATABASE_MISSING,
+			.dbname = db->treename
+		};
 		db->status &= ~DB_STATUS_EXISTS;
 		db->status |= DB_STATUS_MISSING;
-		EVENT(db->handle, ALPM_EVENT_DATABASE_MISSING, db->treename, NULL);
+		EVENT(db->handle, &event);
 		goto valid;
 	}
 	db->status |= DB_STATUS_EXISTS;
@@ -182,6 +187,10 @@ int SYMEXPORT alpm_db_update(int force, alpm_db_t *db)
 	ASSERT(db != handle->db_local, RET_ERR(handle, ALPM_ERR_WRONG_ARGS, -1));
 	ASSERT(db->servers != NULL, RET_ERR(handle, ALPM_ERR_SERVER_NONE, -1));
 
+	if(!(db->usage & ALPM_DB_USAGE_SYNC)) {
+		return 0;
+	}
+
 	syncpath = get_sync_dir(handle);
 	if(!syncpath) {
 		return -1;
@@ -200,7 +209,7 @@ int SYMEXPORT alpm_db_update(int force, alpm_db_t *db)
 	}
 
 	for(i = db->servers; i; i = i->next) {
-		const char *server = i->data;
+		const char *server = i->data, *final_db_url = NULL;
 		struct dload_payload payload;
 		size_t len;
 		int sig_ret = 0;
@@ -219,7 +228,7 @@ int SYMEXPORT alpm_db_update(int force, alpm_db_t *db)
 		payload.force = force;
 		payload.unlink_on_fail = 1;
 
-		ret = _alpm_download(&payload, syncpath, NULL, NULL);
+		ret = _alpm_download(&payload, syncpath, NULL, &final_db_url);
 		_alpm_dload_payload_reset(&payload);
 
 		if(ret == 0 && (level & ALPM_SIG_DATABASE)) {
@@ -232,12 +241,25 @@ int SYMEXPORT alpm_db_update(int force, alpm_db_t *db)
 			unlink(sigpath);
 			free(sigpath);
 
-			/* if we downloaded a DB, we want the .sig from the same server */
-			/* print server + filename into a buffer (leave space for .sig) */
-			len = strlen(server) + strlen(db->treename) + 9;
+			/* if we downloaded a DB, we want the .sig from the same server -
+			   this information is only available from the internal downloader */
+			if(handle->fetchcb == NULL) {
+				/* print final_db_url into a buffer (leave space for .sig) */
+				len = strlen(final_db_url) + 5;
+			} else {
+				/* print server + filename into a buffer (leave space for .sig) */
+				len = strlen(server) + strlen(db->treename) + 9;
+			}
+
 			/* TODO fix leak syncpath and umask unset */
 			MALLOC(payload.fileurl, len, RET_ERR(handle, ALPM_ERR_MEMORY, -1));
-			snprintf(payload.fileurl, len, "%s/%s.db.sig", server, db->treename);
+
+			if(handle->fetchcb == NULL) {
+				snprintf(payload.fileurl, len, "%s.sig", final_db_url);
+			} else {
+				snprintf(payload.fileurl, len, "%s/%s.db.sig", server, db->treename);
+			}
+
 			payload.handle = handle;
 			payload.force = 1;
 			payload.errors_ok = (level & ALPM_SIG_DATABASE_OPTIONAL);
@@ -282,11 +304,7 @@ int SYMEXPORT alpm_db_update(int force, alpm_db_t *db)
 	}
 
 cleanup:
-
-	if(_alpm_handle_unlock(handle)) {
-		_alpm_log(handle, ALPM_LOG_WARNING, _("could not remove lock file %s\n"),
-				handle->lockfile);
-	}
+	_alpm_handle_unlock(handle);
 	free(syncpath);
 	umask(oldmask);
 	return ret;
@@ -474,9 +492,36 @@ static int sync_db_populate(alpm_db_t *db)
 cleanup:
 	_alpm_archive_read_free(archive);
 	if(fd >= 0) {
-		CLOSE(fd);
+		close(fd);
 	}
 	return count;
+}
+
+/* This function validates %FILENAME%. filename must be between 3 and
+ * PATH_MAX characters and cannot be contain a path */
+static int _alpm_validate_filename(alpm_db_t *db, const char *pkgname,
+		const char *filename)
+{
+	size_t len = strlen(filename);
+
+	if(filename[0] == '.') {
+		errno = EINVAL;
+		_alpm_log(db->handle, ALPM_LOG_ERROR, _("%s database is inconsistent: filename "
+					"of package %s is illegal\n"), db->treename, pkgname);
+		return -1;
+	} else if(memchr(filename, '/', len) != NULL) {
+		errno = EINVAL;
+		_alpm_log(db->handle, ALPM_LOG_ERROR, _("%s database is inconsistent: filename "
+					"of package %s is illegal\n"), db->treename, pkgname);
+		return -1;
+	} else if(len > PATH_MAX) {
+		errno = EINVAL;
+		_alpm_log(db->handle, ALPM_LOG_ERROR, _("%s database is inconsistent: filename "
+					"of package %s is too long\n"), db->treename, pkgname);
+		return -1;
+	}
+
+	return 0;
 }
 
 #define READ_NEXT() do { \
@@ -501,7 +546,7 @@ cleanup:
 #define READ_AND_SPLITDEP(f) do { \
 	if(_alpm_archive_fgets(archive, &buf) != ARCHIVE_OK) goto error; \
 	if(_alpm_strip_newline(buf.line, buf.real_line_size) == 0) break; \
-	f = alpm_list_add(f, _alpm_splitdep(line)); \
+	f = alpm_list_add(f, alpm_dep_from_string(line)); \
 } while(1) /* note the while(1) and not (0) */
 
 static int sync_db_read(alpm_db_t *db, struct archive *archive,
@@ -534,6 +579,14 @@ static int sync_db_read(alpm_db_t *db, struct archive *archive,
 		return -1;
 	}
 
+	if(filename == NULL) {
+		/* A file exists outside of a subdirectory. This isn't a read error, so return
+		 * success and try to continue on. */
+		_alpm_log(db->handle, ALPM_LOG_WARNING, _("unknown database file: %s\n"),
+				filename);
+		return 0;
+	}
+
 	if(strcmp(filename, "desc") == 0 || strcmp(filename, "depends") == 0
 			|| (strcmp(filename, "deltas") == 0 && db->handle->deltaratio > 0.0) ) {
 		int ret;
@@ -558,6 +611,9 @@ static int sync_db_read(alpm_db_t *db, struct archive *archive,
 				}
 			} else if(strcmp(line, "%FILENAME%") == 0) {
 				READ_AND_STORE(pkg->filename);
+				if(_alpm_validate_filename(db, pkg->name, pkg->filename) < 0) {
+					return -1;
+				}
 			} else if(strcmp(line, "%DESC%") == 0) {
 				READ_AND_STORE(pkg->desc);
 			} else if(strcmp(line, "%GROUPS%") == 0) {
@@ -670,4 +726,4 @@ alpm_db_t *_alpm_db_register_sync(alpm_handle_t *handle, const char *treename,
 	return db;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

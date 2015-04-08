@@ -1,7 +1,7 @@
 /*
  *  be_local.c : backend for the local database
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -43,6 +43,9 @@
 #include "package.h"
 #include "deps.h"
 #include "filelist.h"
+
+/* local database format version */
+size_t ALPM_LOCAL_DB_VERSION = 9;
 
 static int local_db_read(alpm_pkg_t *info, alpm_dbinfrq_t inforeq);
 
@@ -366,12 +369,40 @@ static int is_dir(const char *path, struct dirent *entry)
 	return 0;
 }
 
+static int local_db_add_version(alpm_db_t UNUSED *db, const char *dbpath)
+{
+	char dbverpath[PATH_MAX];
+	FILE *dbverfile;
+
+	snprintf(dbverpath, PATH_MAX, "%sALPM_DB_VERSION", dbpath);
+
+	dbverfile = fopen(dbverpath, "w");
+	fprintf(dbverfile, "%zu\n", ALPM_LOCAL_DB_VERSION);
+	fclose(dbverfile);
+
+	return 0;
+}
+
+static int local_db_create(alpm_db_t *db, const char *dbpath)
+{
+	if(mkdir(dbpath, 0755) != 0) {
+		_alpm_log(db->handle, ALPM_LOG_ERROR, _("could not create directory %s: %s\n"),
+				dbpath, strerror(errno));
+		RET_ERR(db->handle, ALPM_ERR_DB_CREATE, -1);
+	}
+	local_db_add_version(db, dbpath);
+	return 0;
+}
+
 static int local_db_validate(alpm_db_t *db)
 {
 	struct dirent *ent = NULL;
 	const char *dbpath;
 	DIR *dbdir;
-	int ret = -1;
+	char dbverpath[PATH_MAX];
+	FILE *dbverfile;
+	int t;
+	size_t version;
 
 	if(db->status & DB_STATUS_VALID) {
 		return 0;
@@ -384,15 +415,23 @@ static int local_db_validate(alpm_db_t *db)
 	if(dbpath == NULL) {
 		RET_ERR(db->handle, ALPM_ERR_DB_OPEN, -1);
 	}
+
 	dbdir = opendir(dbpath);
 	if(dbdir == NULL) {
 		if(errno == ENOENT) {
-			/* database dir doesn't exist yet */
-			db->status |= DB_STATUS_VALID;
-			db->status &= ~DB_STATUS_INVALID;
-			db->status &= ~DB_STATUS_EXISTS;
-			db->status |= DB_STATUS_MISSING;
-			return 0;
+			/* local database dir doesn't exist yet - create it */
+			if(local_db_create(db, dbpath) == 0) {
+				db->status |= DB_STATUS_VALID;
+				db->status &= ~DB_STATUS_INVALID;
+				db->status |= DB_STATUS_EXISTS;
+				db->status &= ~DB_STATUS_MISSING;
+				return 0;
+			} else {
+				db->status &= ~DB_STATUS_EXISTS;
+				db->status |= DB_STATUS_MISSING;
+				/* pm_errno is set by local_db_create */
+				return -1;
+			}
 		} else {
 			RET_ERR(db->handle, ALPM_ERR_DB_OPEN, -1);
 		}
@@ -400,37 +439,46 @@ static int local_db_validate(alpm_db_t *db)
 	db->status |= DB_STATUS_EXISTS;
 	db->status &= ~DB_STATUS_MISSING;
 
-	while((ent = readdir(dbdir)) != NULL) {
-		const char *name = ent->d_name;
-		char path[PATH_MAX];
+	snprintf(dbverpath, PATH_MAX, "%sALPM_DB_VERSION", dbpath);
 
-		if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-			continue;
-		}
-		if(!is_dir(dbpath, ent)) {
-			continue;
+	if((dbverfile = fopen(dbverpath, "r")) == NULL) {
+		/* create dbverfile if local database is empty - otherwise version error */
+		while((ent = readdir(dbdir)) != NULL) {
+			const char *name = ent->d_name;
+			if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+				continue;
+			} else {
+				goto version_error;
+			}
 		}
 
-		snprintf(path, PATH_MAX, "%s%s/depends", dbpath, name);
-		if(access(path, F_OK) == 0) {
-			/* we found a depends file- bail */
-			db->status &= ~DB_STATUS_VALID;
-			db->status |= DB_STATUS_INVALID;
-			db->handle->pm_errno = ALPM_ERR_DB_VERSION;
-			goto done;
-		}
+		local_db_add_version(db, dbpath);
+		goto version_latest;
 	}
-	/* we found no depends file after full scan */
+
+	t = fscanf(dbverfile, "%zu", &version);
+	fclose(dbverfile);
+
+	if(t != 1) {
+		goto version_error;
+	}
+
+	if(version != ALPM_LOCAL_DB_VERSION) {
+		goto version_error;
+	}
+
+version_latest:
+	closedir(dbdir);
 	db->status |= DB_STATUS_VALID;
 	db->status &= ~DB_STATUS_INVALID;
-	ret = 0;
+	return 0;
 
-done:
-	if(dbdir) {
-		closedir(dbdir);
-	}
-
-	return ret;
+version_error:
+	closedir(dbdir);
+	db->status &= ~DB_STATUS_VALID;
+	db->status |= DB_STATUS_INVALID;
+	db->handle->pm_errno = ALPM_ERR_DB_VERSION;
+	return -1;
 }
 
 static int local_db_populate(alpm_db_t *db)
@@ -445,7 +493,9 @@ static int local_db_populate(alpm_db_t *db)
 	if(db->status & DB_STATUS_INVALID) {
 		RET_ERR(db->handle, ALPM_ERR_DB_INVALID, -1);
 	}
-	/* note: DB_STATUS_MISSING is not fatal for local database */
+	if(db->status & DB_STATUS_MISSING) {
+		RET_ERR(db->handle, ALPM_ERR_DB_NOT_FOUND, -1);
+	}
 
 	dbpath = _alpm_db_path(db);
 	if(dbpath == NULL) {
@@ -455,12 +505,6 @@ static int local_db_populate(alpm_db_t *db)
 
 	dbdir = opendir(dbpath);
 	if(dbdir == NULL) {
-		if(errno == ENOENT) {
-			/* no database existing yet is not an error */
-			db->status &= ~DB_STATUS_EXISTS;
-			db->status |= DB_STATUS_MISSING;
-			return 0;
-		}
 		RET_ERR(db->handle, ALPM_ERR_DB_OPEN, -1);
 	}
 	if(fstat(dirfd(dbdir), &buf) != 0) {
@@ -572,7 +616,7 @@ char *_alpm_local_db_pkgpath(alpm_db_t *db, alpm_pkg_t *info,
 }
 
 #define READ_NEXT() do { \
-	if(fgets(line, sizeof(line), fp) == NULL && !feof(fp)) goto error; \
+	if(safe_fgets(line, sizeof(line), fp) == NULL && !feof(fp)) goto error; \
 	_alpm_strip_newline(line, 0); \
 } while(0)
 
@@ -583,7 +627,7 @@ char *_alpm_local_db_pkgpath(alpm_db_t *db, alpm_pkg_t *info,
 
 #define READ_AND_STORE_ALL(f) do { \
 	char *linedup; \
-	if(fgets(line, sizeof(line), fp) == NULL) {\
+	if(safe_fgets(line, sizeof(line), fp) == NULL) {\
 		if(!feof(fp)) goto error; else break; \
 	} \
 	if(_alpm_strip_newline(line, 0) == 0) break; \
@@ -592,11 +636,11 @@ char *_alpm_local_db_pkgpath(alpm_db_t *db, alpm_pkg_t *info,
 } while(1) /* note the while(1) and not (0) */
 
 #define READ_AND_SPLITDEP(f) do { \
-	if(fgets(line, sizeof(line), fp) == NULL) {\
+	if(safe_fgets(line, sizeof(line), fp) == NULL) {\
 		if(!feof(fp)) goto error; else break; \
 	} \
 	if(_alpm_strip_newline(line, 0) == 0) break; \
-	f = alpm_list_add(f, _alpm_splitdep(line)); \
+	f = alpm_list_add(f, alpm_dep_from_string(line)); \
 } while(1) /* note the while(1) and not (0) */
 
 static int local_db_read(alpm_pkg_t *info, alpm_dbinfrq_t inforeq)
@@ -638,7 +682,7 @@ static int local_db_read(alpm_pkg_t *info, alpm_dbinfrq_t inforeq)
 		}
 		free(path);
 		while(!feof(fp)) {
-			if(fgets(line, sizeof(line), fp) == NULL && !feof(fp)) {
+			if(safe_fgets(line, sizeof(line), fp) == NULL && !feof(fp)) {
 				goto error;
 			}
 			if(_alpm_strip_newline(line, 0) == 0) {
@@ -727,39 +771,22 @@ static int local_db_read(alpm_pkg_t *info, alpm_dbinfrq_t inforeq)
 			goto error;
 		}
 		free(path);
-		while(fgets(line, sizeof(line), fp)) {
+		while(safe_fgets(line, sizeof(line), fp)) {
 			_alpm_strip_newline(line, 0);
 			if(strcmp(line, "%FILES%") == 0) {
 				size_t files_count = 0, files_size = 0, len;
 				alpm_file_t *files = NULL;
 
-				while(fgets(line, sizeof(line), fp) &&
+				while(safe_fgets(line, sizeof(line), fp) &&
 						(len = _alpm_strip_newline(line, 0))) {
-					if(files_count >= files_size) {
-						size_t old_size = files_size;
-						if(files_size == 0) {
-							files_size = 8;
-						} else {
-							files_size *= 2;
-						}
-						files = realloc(files, sizeof(alpm_file_t) * files_size);
-						if(!files) {
-							_alpm_alloc_fail(sizeof(alpm_file_t) * files_size);
-							goto error;
-						}
-						/* ensure all new memory is zeroed out, in both the initial
-						 * allocation and later reallocs */
-						memset(files + old_size, 0,
-								sizeof(alpm_file_t) * (files_size - old_size));
+					if(!_alpm_greedy_grow((void **)&files, &files_size,
+								(files_count ? (files_count + 1) * sizeof(alpm_file_t) : 8 * sizeof(alpm_file_t)))) {
+						goto error;
 					}
 					/* since we know the length of the file string already,
 					 * we can do malloc + memcpy rather than strdup */
 					len += 1;
-					files[files_count].name = malloc(len);
-					if(files[files_count].name == NULL) {
-						_alpm_alloc_fail(len);
-						goto error;
-					}
+					MALLOC(files[files_count].name, len, goto error);
 					memcpy(files[files_count].name, line, len);
 					files_count++;
 				}
@@ -770,7 +797,7 @@ static int local_db_read(alpm_pkg_t *info, alpm_dbinfrq_t inforeq)
 				info->files.count = files_count;
 				info->files.files = files;
 			} else if(strcmp(line, "%BACKUP%") == 0) {
-				while(fgets(line, sizeof(line), fp) && _alpm_strip_newline(line, 0)) {
+				while(safe_fgets(line, sizeof(line), fp) && _alpm_strip_newline(line, 0)) {
 					alpm_backup_t *backup;
 					CALLOC(backup, 1, sizeof(alpm_backup_t), goto error);
 					if(_alpm_split_backup(line, &backup)) {
@@ -990,8 +1017,8 @@ int _alpm_local_db_write(alpm_db_t *db, alpm_pkg_t *info, alpm_dbinfrq_t inforeq
 		fp = NULL;
 	}
 
-	/* INSTALL */
-	/* nothing needed here (script is automatically extracted) */
+	/* INSTALL and MTREE */
+	/* nothing needed here (automatically extracted) */
 
 cleanup:
 	umask(oldmask);
@@ -1091,6 +1118,7 @@ alpm_db_t *_alpm_db_register_local(alpm_handle_t *handle)
 	}
 	db->ops = &local_db_ops;
 	db->handle = handle;
+	db->usage = ALPM_DB_USAGE_ALL;
 
 	if(local_db_validate(db)) {
 		/* pm_errno set in local_db_validate() */
@@ -1102,4 +1130,4 @@ alpm_db_t *_alpm_db_register_local(alpm_handle_t *handle)
 	return db;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

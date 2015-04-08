@@ -1,7 +1,7 @@
 /*
  *  conf.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -101,6 +101,7 @@ typedef struct __config_t {
 	alpm_list_t *holdpkg;
 	alpm_list_t *ignorepkg;
 	alpm_list_t *ignoregrp;
+	alpm_list_t *assumeinstalled;
 	alpm_list_t *noupgrade;
 	alpm_list_t *noextract;
 	char *xfercommand;
@@ -128,7 +129,9 @@ enum {
 
 /* Long Operations */
 enum {
-	OP_NOCONFIRM = 1000,
+	OP_LONG_FLAG_MIN = 1000,
+	OP_NOCONFIRM,
+	OP_CONFIRM,
 	OP_CONFIG,
 	OP_IGNORE,
 	OP_DEBUG,
@@ -146,7 +149,37 @@ enum {
 	OP_GPGDIR,
 	OP_DBONLY,
 	OP_FORCE,
-	OP_COLOR
+	OP_COLOR,
+	OP_DBPATH,
+	OP_CASCADE,
+	OP_CHANGELOG,
+	OP_CLEAN,
+	OP_NODEPS,
+	OP_DEPS,
+	OP_EXPLICIT,
+	OP_GROUPS,
+	OP_HELP,
+	OP_INFO,
+	OP_CHECK,
+	OP_LIST,
+	OP_FOREIGN,
+	OP_NATIVE,
+	OP_NOSAVE,
+	OP_OWNS,
+	OP_FILE,
+	OP_PRINT,
+	OP_QUIET,
+	OP_ROOT,
+	OP_RECURSIVE,
+	OP_SEARCH,
+	OP_UNREQUIRED,
+	OP_UPGRADES,
+	OP_SYSUPGRADE,
+	OP_UNNEEDED,
+	OP_VERBOSE,
+	OP_DOWNLOADONLY,
+	OP_REFRESH,
+	OP_ASSUMEINSTALLED
 };
 
 /* clean method */
@@ -158,7 +191,7 @@ enum {
 /** package locality */
 enum {
 	PKG_LOCALITY_UNSET = 0,
-	PKG_LOCALITY_LOCAL = (1 << 0),
+	PKG_LOCALITY_NATIVE = (1 << 0),
 	PKG_LOCALITY_FOREIGN = (1 << 1)
 };
 
@@ -179,4 +212,4 @@ int config_set_arch(const char *arch);
 int parseconfig(const char *file);
 #endif /* _PM_CONF_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

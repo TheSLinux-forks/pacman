@@ -1,7 +1,7 @@
 /*
  *  group.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -27,4 +27,4 @@ void _alpm_group_free(alpm_group_t *grp);
 
 #endif /* _ALPM_GROUP_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

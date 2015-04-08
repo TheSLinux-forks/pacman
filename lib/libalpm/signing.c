@@ -1,7 +1,7 @@
 /*
  *  signing.c
  *
- *  Copyright (c) 2008-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2008-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,23 +21,52 @@
 #include <stdio.h>
 #include <string.h>
 
-#if HAVE_LIBGPGME
+#ifdef HAVE_LIBGPGME
 #include <locale.h> /* setlocale() */
 #include <gpgme.h>
-#include "base64.h"
 #endif
 
 /* libalpm */
 #include "signing.h"
 #include "package.h"
+#include "base64.h"
 #include "util.h"
 #include "log.h"
 #include "alpm.h"
 #include "handle.h"
 
-#if HAVE_LIBGPGME
+/**
+ * Decode a loaded signature in base64 form.
+ * @param base64_data the signature to attempt to decode
+ * @param data the decoded data; must be freed by the caller
+ * @param data_len the length of the returned data
+ * @return 0 on success, -1 on failure to properly decode
+ */
+
+int SYMEXPORT alpm_decode_signature(const char *base64_data,
+		unsigned char **data, size_t *data_len)
+{
+	size_t len = strlen(base64_data);
+	unsigned char *usline = (unsigned char *)base64_data;
+	/* reasonable allocation of expected length is 3/4 of encoded length */
+	size_t destlen = len * 3 / 4;
+	MALLOC(*data, destlen, goto error);
+	if(base64_decode(*data, &destlen, usline, len)) {
+		free(*data);
+		goto error;
+	}
+	*data_len = destlen;
+	return 0;
+
+error:
+	*data = NULL;
+	*data_len = 0;
+	return -1;
+}
+
+#ifdef HAVE_LIBGPGME
 #define CHECK_ERR(void) do { \
-		if(gpg_err_code(err) != GPG_ERR_NO_ERROR) { goto gpg_error; } \
+		if(gpg_err_code(gpg_err) != GPG_ERR_NO_ERROR) { goto gpg_error; } \
 	} while(0)
 
 /**
@@ -85,27 +114,27 @@ static alpm_list_t *list_sigsum(gpgme_sigsum_t sigsum)
 	/* The docs say this can be a bitmask...not sure I believe it, but we'll code
 	 * for it anyway and show all possible flags in the returned string. */
 
-	/* The signature is fully valid.  */
+	/* The signature is fully valid. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_VALID, "valid");
-	/* The signature is good.  */
+	/* The signature is good. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_GREEN, "green");
-	/* The signature is bad.  */
+	/* The signature is bad. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_RED, "red");
-	/* One key has been revoked.  */
+	/* One key has been revoked. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_KEY_REVOKED, "key revoked");
-	/* One key has expired.  */
+	/* One key has expired. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_KEY_EXPIRED, "key expired");
-	/* The signature has expired.  */
+	/* The signature has expired. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_SIG_EXPIRED, "sig expired");
-	/* Can't verify: key missing.  */
+	/* Can't verify: key missing. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_KEY_MISSING, "key missing");
-	/* CRL not available.  */
+	/* CRL not available. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_CRL_MISSING, "crl missing");
-	/* Available CRL is too old.  */
+	/* Available CRL is too old. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_CRL_TOO_OLD, "crl too old");
-	/* A policy was not met.  */
+	/* A policy was not met. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_BAD_POLICY, "bad policy");
-	/* A system error occured.  */
+	/* A system error occurred. */
 	sigsum_test_bit(sigsum, &summary, GPGME_SIGSUM_SYS_ERROR, "sys error");
 	/* Fallback case */
 	if(!sigsum) {
@@ -124,7 +153,7 @@ static int init_gpgme(alpm_handle_t *handle)
 {
 	static int init = 0;
 	const char *version, *sigdir;
-	gpgme_error_t err;
+	gpgme_error_t gpg_err;
 	gpgme_engine_info_t enginfo;
 
 	if(init) {
@@ -160,13 +189,13 @@ static int init_gpgme(alpm_handle_t *handle)
 	 */
 
 	/* check for OpenPGP support (should be a no-brainer, but be safe) */
-	err = gpgme_engine_check_version(GPGME_PROTOCOL_OpenPGP);
+	gpg_err = gpgme_engine_check_version(GPGME_PROTOCOL_OpenPGP);
 	CHECK_ERR();
 
 	/* set and check engine information */
-	err = gpgme_set_engine_info(GPGME_PROTOCOL_OpenPGP, NULL, sigdir);
+	gpg_err = gpgme_set_engine_info(GPGME_PROTOCOL_OpenPGP, NULL, sigdir);
 	CHECK_ERR();
-	err = gpgme_get_engine_info(&enginfo);
+	gpg_err = gpgme_get_engine_info(&enginfo);
 	CHECK_ERR();
 	_alpm_log(handle, ALPM_LOG_DEBUG, "GPGME engine info: file=%s, home=%s\n",
 			enginfo->file_name, enginfo->home_dir);
@@ -175,7 +204,7 @@ static int init_gpgme(alpm_handle_t *handle)
 	return 0;
 
 gpg_error:
-	_alpm_log(handle, ALPM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(err));
+	_alpm_log(handle, ALPM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(gpg_err));
 	RET_ERR(handle, ALPM_ERR_GPGME, -1);
 }
 
@@ -187,10 +216,15 @@ gpg_error:
  */
 int _alpm_key_in_keychain(alpm_handle_t *handle, const char *fpr)
 {
-	gpgme_error_t err;
+	gpgme_error_t gpg_err;
 	gpgme_ctx_t ctx;
 	gpgme_key_t key;
 	int ret = -1;
+
+	if(alpm_list_find_str(handle->known_keys, fpr)) {
+		_alpm_log(handle, ALPM_LOG_DEBUG, "key %s found in cache\n", fpr);
+		return 1;
+	}
 
 	if(init_gpgme(handle)) {
 		/* pm_errno was set in gpgme_init() */
@@ -198,20 +232,21 @@ int _alpm_key_in_keychain(alpm_handle_t *handle, const char *fpr)
 	}
 
 	memset(&ctx, 0, sizeof(ctx));
-	err = gpgme_new(&ctx);
+	gpg_err = gpgme_new(&ctx);
 	CHECK_ERR();
 
 	_alpm_log(handle, ALPM_LOG_DEBUG, "looking up key %s locally\n", fpr);
 
-	err = gpgme_get_key(ctx, fpr, &key, 0);
-	if(gpg_err_code(err) == GPG_ERR_EOF) {
+	gpg_err = gpgme_get_key(ctx, fpr, &key, 0);
+	if(gpg_err_code(gpg_err) == GPG_ERR_EOF) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "key lookup failed, unknown key\n");
 		ret = 0;
-	} else if(gpg_err_code(err) == GPG_ERR_NO_ERROR) {
+	} else if(gpg_err_code(gpg_err) == GPG_ERR_NO_ERROR) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "key lookup success, key exists\n");
+		handle->known_keys = alpm_list_add(handle->known_keys, strdup(fpr));
 		ret = 1;
 	} else {
-		_alpm_log(handle, ALPM_LOG_DEBUG, "gpg error: %s\n", gpgme_strerror(err));
+		_alpm_log(handle, ALPM_LOG_DEBUG, "gpg error: %s\n", gpgme_strerror(gpg_err));
 	}
 	gpgme_key_unref(key);
 
@@ -234,7 +269,7 @@ error:
 static int key_search(alpm_handle_t *handle, const char *fpr,
 		alpm_pgpkey_t *pgpkey)
 {
-	gpgme_error_t err;
+	gpgme_error_t gpg_err;
 	gpgme_ctx_t ctx;
 	gpgme_keylist_mode_t mode;
 	gpgme_key_t key;
@@ -249,20 +284,20 @@ static int key_search(alpm_handle_t *handle, const char *fpr,
 	sprintf(full_fpr, "0x%s", fpr);
 
 	memset(&ctx, 0, sizeof(ctx));
-	err = gpgme_new(&ctx);
+	gpg_err = gpgme_new(&ctx);
 	CHECK_ERR();
 
 	mode = gpgme_get_keylist_mode(ctx);
 	/* using LOCAL and EXTERN together doesn't work for GPG 1.X. Ugh. */
 	mode &= ~GPGME_KEYLIST_MODE_LOCAL;
 	mode |= GPGME_KEYLIST_MODE_EXTERN;
-	err = gpgme_set_keylist_mode(ctx, mode);
+	gpg_err = gpgme_set_keylist_mode(ctx, mode);
 	CHECK_ERR();
 
 	_alpm_log(handle, ALPM_LOG_DEBUG, "looking up key %s remotely\n", fpr);
 
-	err = gpgme_get_key(ctx, full_fpr, &key, 0);
-	if(gpg_err_code(err) == GPG_ERR_EOF) {
+	gpg_err = gpgme_get_key(ctx, full_fpr, &key, 0);
+	if(gpg_err_code(gpg_err) == GPG_ERR_EOF) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "key lookup failed, unknown key\n");
 		/* Try an alternate lookup using the 8 character fingerprint value, since
 		 * busted-ass keyservers can't support lookups using subkeys with the full
@@ -271,8 +306,8 @@ static int key_search(alpm_handle_t *handle, const char *fpr,
 			const char *short_fpr = memcpy(&full_fpr[fpr_len - 8], "0x", 2);
 			_alpm_log(handle, ALPM_LOG_DEBUG,
 					"looking up key %s remotely\n", short_fpr);
-			err = gpgme_get_key(ctx, short_fpr, &key, 0);
-			if(gpg_err_code(err) == GPG_ERR_EOF) {
+			gpg_err = gpgme_get_key(ctx, short_fpr, &key, 0);
+			if(gpg_err_code(gpg_err) == GPG_ERR_EOF) {
 				_alpm_log(handle, ALPM_LOG_DEBUG, "key lookup failed, unknown key\n");
 				ret = 0;
 			}
@@ -298,6 +333,10 @@ static int key_search(alpm_handle_t *handle, const char *fpr,
 	pgpkey->length = key->subkeys->length;
 	pgpkey->revoked = key->subkeys->revoked;
 
+	/* Initialize with '?', this is overwritten unless public key
+	 * algorithm is unknown. */
+	pgpkey->pubkey_algo = '?';
+
 	switch(key->subkeys->pubkey_algo) {
 		case GPGME_PK_RSA:
 		case GPGME_PK_RSA_E:
@@ -313,15 +352,27 @@ static int key_search(alpm_handle_t *handle, const char *fpr,
 		case GPGME_PK_ELG:
 		case GPGME_PK_ECDSA:
 		case GPGME_PK_ECDH:
+/* value added in gpgme 1.5.0 */
+#if GPGME_VERSION_NUMBER >= 0x010500
+		case GPGME_PK_ECC:
+#endif
 			pgpkey->pubkey_algo = 'E';
 			break;
 	}
 
 	ret = 1;
 
+	/* We do not want to add a default switch case above to receive
+	 * compiler error on new public key algorithm in gpgme. So check
+	 * here if we have a valid pubkey_algo. */
+	if (pgpkey->pubkey_algo == '?') {
+		_alpm_log(handle, ALPM_LOG_DEBUG,
+			"unknown public key algorithm: %d\n", key->subkeys->pubkey_algo);
+	}
+
 gpg_error:
 	if(ret != 1) {
-		_alpm_log(handle, ALPM_LOG_DEBUG, "gpg error: %s\n", gpgme_strerror(err));
+		_alpm_log(handle, ALPM_LOG_DEBUG, "gpg error: %s\n", gpgme_strerror(gpg_err));
 	}
 	free(full_fpr);
 	gpgme_release(ctx);
@@ -336,7 +387,7 @@ gpg_error:
  */
 static int key_import(alpm_handle_t *handle, alpm_pgpkey_t *key)
 {
-	gpgme_error_t err;
+	gpgme_error_t gpg_err;
 	gpgme_ctx_t ctx;
 	gpgme_key_t keys[2];
 	gpgme_import_result_t result;
@@ -349,23 +400,22 @@ static int key_import(alpm_handle_t *handle, alpm_pgpkey_t *key)
 	}
 
 	memset(&ctx, 0, sizeof(ctx));
-	err = gpgme_new(&ctx);
+	gpg_err = gpgme_new(&ctx);
 	CHECK_ERR();
 
 	_alpm_log(handle, ALPM_LOG_DEBUG, "importing key\n");
 
 	keys[0] = key->data;
 	keys[1] = NULL;
-	err = gpgme_op_import_keys(ctx, keys);
+	gpg_err = gpgme_op_import_keys(ctx, keys);
 	CHECK_ERR();
 	result = gpgme_op_import_result(ctx);
-	CHECK_ERR();
 	/* we know we tried to import exactly one key, so check for this */
 	if(result->considered != 1 || !result->imports) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "could not import key, 0 results\n");
 		ret = -1;
 	} else if(result->imports->result != GPG_ERR_NO_ERROR) {
-		_alpm_log(handle, ALPM_LOG_DEBUG, "gpg error: %s\n", gpgme_strerror(err));
+		_alpm_log(handle, ALPM_LOG_DEBUG, "gpg error: %s\n", gpgme_strerror(gpg_err));
 		ret = -1;
 	} else {
 		ret = 0;
@@ -384,7 +434,7 @@ gpg_error:
  */
 int _alpm_key_import(alpm_handle_t *handle, const char *fpr)
 {
-	int answer = 0, ret = -1;
+	int ret = -1;
 	alpm_pgpkey_t fetch_key;
 	memset(&fetch_key, 0, sizeof(fetch_key));
 
@@ -392,9 +442,13 @@ int _alpm_key_import(alpm_handle_t *handle, const char *fpr)
 		_alpm_log(handle, ALPM_LOG_DEBUG,
 				"unknown key, found %s on keyserver\n", fetch_key.uid);
 		if(!_alpm_access(handle, handle->gpgdir, "pubring.gpg", W_OK)) {
-			QUESTION(handle, ALPM_QUESTION_IMPORT_KEY,
-					&fetch_key, NULL, NULL, &answer);
-			if(answer) {
+			alpm_question_import_key_t question = {
+				.type = ALPM_QUESTION_IMPORT_KEY,
+				.import = 0,
+				.key = &fetch_key
+			};
+			QUESTION(handle, &question);
+			if(question.import) {
 				if(key_import(handle, &fetch_key) == 0) {
 					ret = 0;
 				} else {
@@ -418,35 +472,6 @@ int _alpm_key_import(alpm_handle_t *handle, const char *fpr)
 }
 
 /**
- * Decode a loaded signature in base64 form.
- * @param base64_data the signature to attempt to decode
- * @param data the decoded data; must be freed by the caller
- * @param data_len the length of the returned data
- * @return 0 on success, -1 on failure to properly decode
- */
-
-int _alpm_decode_signature(const char *base64_data,
-		unsigned char **data, size_t *data_len)
-{
-	size_t len = strlen(base64_data);
-	unsigned char *usline = (unsigned char *)base64_data;
-	/* reasonable allocation of expected length is 3/4 of encoded length */
-	size_t destlen = len * 3 / 4;
-	MALLOC(*data, destlen, goto error);
-	if(base64_decode(*data, &destlen, usline, len)) {
-		free(*data);
-		goto error;
-	}
-	*data_len = destlen;
-	return 0;
-
-error:
-	*data = NULL;
-	*data_len = 0;
-	return -1;
-}
-
-/**
  * Check the PGP signature for the given file path.
  * If base64_sig is provided, it will be used as the signature data after
  * decoding. If base64_sig is NULL, expect a signature file next to path
@@ -467,7 +492,7 @@ int _alpm_gpgme_checksig(alpm_handle_t *handle, const char *path,
 		const char *base64_sig, alpm_siglist_t *siglist)
 {
 	int ret = -1, sigcount;
-	gpgme_error_t err = 0;
+	gpgme_error_t gpg_err = 0;
 	gpgme_ctx_t ctx;
 	gpgme_data_t filedata, sigdata;
 	gpgme_verify_result_t verify_result;
@@ -514,33 +539,33 @@ int _alpm_gpgme_checksig(alpm_handle_t *handle, const char *path,
 	memset(&sigdata, 0, sizeof(sigdata));
 	memset(&filedata, 0, sizeof(filedata));
 
-	err = gpgme_new(&ctx);
+	gpg_err = gpgme_new(&ctx);
 	CHECK_ERR();
 
 	/* create our necessary data objects to verify the signature */
-	err = gpgme_data_new_from_stream(&filedata, file);
+	gpg_err = gpgme_data_new_from_stream(&filedata, file);
 	CHECK_ERR();
 
 	/* next create data object for the signature */
 	if(base64_sig) {
 		/* memory-based, we loaded it from a sync DB */
 		size_t data_len;
-		int decode_ret = _alpm_decode_signature(base64_sig,
+		int decode_ret = alpm_decode_signature(base64_sig,
 				&decoded_sigdata, &data_len);
 		if(decode_ret) {
 			handle->pm_errno = ALPM_ERR_SIG_INVALID;
 			goto gpg_error;
 		}
-		err = gpgme_data_new_from_mem(&sigdata,
+		gpg_err = gpgme_data_new_from_mem(&sigdata,
 				(char *)decoded_sigdata, data_len, 0);
 	} else {
 		/* file-based, it is on disk */
-		err = gpgme_data_new_from_stream(&sigdata, sigfile);
+		gpg_err = gpgme_data_new_from_stream(&sigdata, sigfile);
 	}
 	CHECK_ERR();
 
 	/* here's where the magic happens */
-	err = gpgme_op_verify(ctx, sigdata, filedata, NULL);
+	gpg_err = gpgme_op_verify(ctx, sigdata, filedata, NULL);
 	CHECK_ERR();
 	verify_result = gpgme_op_verify_result(ctx);
 	CHECK_ERR();
@@ -585,10 +610,10 @@ int _alpm_gpgme_checksig(alpm_handle_t *handle, const char *path,
 				gpgme_strerror(gpgsig->validity_reason));
 
 		result = siglist->results + sigcount;
-		err = gpgme_get_key(ctx, gpgsig->fpr, &key, 0);
-		if(gpg_err_code(err) == GPG_ERR_EOF) {
+		gpg_err = gpgme_get_key(ctx, gpgsig->fpr, &key, 0);
+		if(gpg_err_code(gpg_err) == GPG_ERR_EOF) {
 			_alpm_log(handle, ALPM_LOG_DEBUG, "key lookup failed, unknown key\n");
-			err = GPG_ERR_NO_ERROR;
+			gpg_err = GPG_ERR_NO_ERROR;
 			/* we dupe the fpr in this case since we have no key to point at */
 			STRDUP(result->key.fingerprint, gpgsig->fpr,
 					handle->pm_errno = ALPM_ERR_MEMORY; goto gpg_error);
@@ -672,14 +697,14 @@ error:
 	}
 	FREE(sigpath);
 	FREE(decoded_sigdata);
-	if(gpg_err_code(err) != GPG_ERR_NO_ERROR) {
-		_alpm_log(handle, ALPM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(err));
+	if(gpg_err_code(gpg_err) != GPG_ERR_NO_ERROR) {
+		_alpm_log(handle, ALPM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(gpg_err));
 		RET_ERR(handle, ALPM_ERR_GPGME, -1);
 	}
 	return ret;
 }
 
-#else  /* HAVE_LIBGPGME */
+#else /* HAVE_LIBGPGME */
 int _alpm_key_in_keychain(alpm_handle_t UNUSED *handle, const char UNUSED *fpr)
 {
 	return -1;
@@ -942,7 +967,7 @@ int SYMEXPORT alpm_siglist_cleanup(alpm_siglist_t *siglist)
 	for(num = 0; num < siglist->count; num++) {
 		alpm_sigresult_t *result = siglist->results + num;
 		if(result->key.data) {
-#if HAVE_LIBGPGME
+#ifdef HAVE_LIBGPGME
 			gpgme_key_unref(result->key.data);
 #endif
 		} else {
@@ -964,7 +989,7 @@ int SYMEXPORT alpm_siglist_cleanup(alpm_siglist_t *siglist)
  * @param keys a pointer to storage for key IDs
  * @return 0 on success, -1 on error
  */
-int _alpm_extract_keyid(alpm_handle_t *handle, const char *identifier,
+int SYMEXPORT alpm_extract_keyid(alpm_handle_t *handle, const char *identifier,
 		const unsigned char *sig, const size_t len, alpm_list_t **keys)
 {
 	size_t pos, spos, blen, hlen, ulen, slen;
@@ -1070,4 +1095,4 @@ int _alpm_extract_keyid(alpm_handle_t *handle, const char *identifier,
 	return 0;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

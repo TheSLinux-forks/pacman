@@ -18,9 +18,6 @@ else
 AM_CFLAGS += -fvisibility=internal
 endif
 endif
-if ENABLE_GNU89_INLINE_CC
-AM_CFLAGS += -fgnu89-inline
-endif
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libalpm.pc
@@ -30,6 +27,7 @@ libalpm_la_SOURCES = \
 	alpm.h alpm.c \
 	alpm_list.h alpm_list.c \
 	backup.h backup.c \
+	base64.h base64.c \
 	be_local.c \
 	be_package.c \
 	be_sync.c \
@@ -63,11 +61,6 @@ libalpm_la_SOURCES += \
 	sha2.h sha2.c
 endif
 
-if HAVE_LIBGPGME
-libalpm_la_SOURCES += \
-	base64.h base64.c
-endif
-
 libalpm_la_LDFLAGS = -no-undefined -version-info $(LIB_VERSION_INFO)
 
 libalpm_la_CFLAGS = \
@@ -84,4 +77,4 @@ libalpm_la_LIBADD = \
 	$(LIBCURL_LIBS) \
 	$(LIBSSL_LIBS)
 
-# vim:set ts=2 sw=2 noet:
+# vim:set noet:

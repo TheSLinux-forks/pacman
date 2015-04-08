@@ -1,7 +1,7 @@
 /*
  *  query.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -90,11 +90,54 @@ static void print_query_fileowner(const char *filename, alpm_pkg_t *info)
 	}
 }
 
+/** Resolve the canonicalized absolute path of a symlink.
+ * @param path path to resolve
+ * @param resolved_path destination for the resolved path, will be malloc'd if
+ * NULL
+ * @return the resolved path
+ */
+static char *lrealpath(const char *path, char *resolved_path)
+{
+	const char *bname = mbasename(path);
+	char *rpath = NULL, *dname = NULL;
+	int success = 0;
+
+	if(strcmp(bname, ".") == 0 || strcmp(bname, "..") == 0) {
+		/* the entire path needs to be resolved */
+		return realpath(path, resolved_path);
+	}
+
+	if(!(dname = mdirname(path))) {
+		goto cleanup;
+	}
+	if(!(rpath = realpath(dname, NULL))) {
+		goto cleanup;
+	}
+	if(!resolved_path) {
+		if(!(resolved_path = malloc(strlen(rpath) + strlen(bname) + 2))) {
+			goto cleanup;
+		}
+	}
+
+	strcpy(resolved_path, rpath);
+	if(resolved_path[strlen(resolved_path) - 1] != '/') {
+		strcat(resolved_path, "/");
+	}
+	strcat(resolved_path, bname);
+	success = 1;
+
+cleanup:
+	free(dname);
+	free(rpath);
+
+	return (success ? resolved_path : NULL);
+}
+
 static int query_fileowner(alpm_list_t *targets)
 {
 	int ret = 0;
-	char path[PATH_MAX];
-	size_t rootlen;
+	const char *root = alpm_option_get_root(config->handle);
+	size_t rootlen = strlen(root);
 	alpm_list_t *t;
 	alpm_db_t *db_local;
 	alpm_list_t *packages;
@@ -105,39 +148,15 @@ static int query_fileowner(alpm_list_t *targets)
 		return 1;
 	}
 
-	/* Set up our root path buffer. We only need to copy the location of root in
-	 * once, then we can just overwrite whatever file was there on the previous
-	 * iteration. */
-
-	/* resolve root now so any symlinks in it will only have to be resolved once */
-	if(!realpath(alpm_option_get_root(config->handle), path)) {
-		pm_printf(ALPM_LOG_ERROR, _("cannot determine real path for '%s': %s\n"),
-				path, strerror(errno));
-		return 1;
-	}
-
-	/* make sure there's enough room to append the package file to path */
-	rootlen = strlen(path);
-	if(rootlen + 2 > PATH_MAX) {
-		pm_printf(ALPM_LOG_ERROR, _("path too long: %s%s\n"), path, "");
-		return 1;
-	}
-
-	/* append trailing '/' removed by realpath */
-	if(path[rootlen - 1] != '/') {
-		path[rootlen++] = '/';
-		path[rootlen] = '\0';
-	}
-
 	db_local = alpm_get_localdb(config->handle);
 	packages = alpm_db_get_pkgcache(db_local);
 
 	for(t = targets; t; t = alpm_list_next(t)) {
-		char *filename = NULL, *dname = NULL, *rpath = NULL;
-		const char *bname;
+		char *filename = NULL;
+		char rpath[PATH_MAX], *rel_path;
 		struct stat buf;
 		alpm_list_t *i;
-		size_t len, is_dir, bname_len, pbname_len;
+		size_t len, is_dir;
 		unsigned int found = 0;
 
 		if((filename = strdup(t->data)) == NULL) {
@@ -151,7 +170,7 @@ static int query_fileowner(alpm_list_t *targets)
 		}
 
 		if(lstat(filename, &buf) == -1) {
-			/*  if it is not a path but a program name, then check in PATH */
+			/* if it is not a path but a program name, then check in PATH */
 			if(strchr(filename, '/') == NULL) {
 				if(search_path(&filename, &buf) == -1) {
 					pm_printf(ALPM_LOG_ERROR, _("failed to find '%s' in PATH: %s\n"),
@@ -165,82 +184,32 @@ static int query_fileowner(alpm_list_t *targets)
 			}
 		}
 
-		is_dir = S_ISDIR(buf.st_mode) ? 1 : 0;
-		if(is_dir) {
-			/* the entire filename is safe to resolve if we know it points to a dir,
-			 * and it's necessary in case it ends in . or .. */
-			dname = realpath(filename, NULL);
-			bname = mbasename(dname);
-			rpath = mdirname(dname);
-		} else {
-			bname = mbasename(filename);
-			dname = mdirname(filename);
-			rpath = realpath(dname, NULL);
-		}
-
-		bname_len = strlen(bname);
-		pbname_len = bname_len + is_dir;
-
-		if(!dname || !rpath) {
+		if(!lrealpath(filename, rpath)) {
 			pm_printf(ALPM_LOG_ERROR, _("cannot determine real path for '%s': %s\n"),
 					filename, strerror(errno));
 			goto targcleanup;
 		}
 
+		if(strncmp(rpath, root, rootlen) != 0) {
+			/* file is outside root, we know nothing can own it */
+			pm_printf(ALPM_LOG_ERROR, _("No package owns %s\n"), filename);
+			goto targcleanup;
+		}
+
+		rel_path = rpath + rootlen;
+
+		if((is_dir = S_ISDIR(buf.st_mode))) {
+			size_t rlen = strlen(rpath);
+			if(rlen + 2 >= PATH_MAX) {
+					pm_printf(ALPM_LOG_ERROR, _("path too long: %s/\n"), rpath);
+			}
+			strcat(rpath + rlen, "/");
+		}
+
 		for(i = packages; i && (!found || is_dir); i = alpm_list_next(i)) {
-			alpm_pkg_t *info = i->data;
-			alpm_filelist_t *filelist = alpm_pkg_get_files(info);
-			size_t j;
-
-			for(j = 0; j < filelist->count; j++) {
-				const alpm_file_t *file = filelist->files + j;
-				char *ppath;
-				const char *pkgfile = file->name;
-				size_t pkgfile_len = strlen(pkgfile);
-
-				/* make sure pkgfile and target are of the same type */
-				if(is_dir != (pkgfile[pkgfile_len - 1] == '/')) {
-					continue;
-				}
-
-				/* make sure pkgfile is long enough */
-				if(pkgfile_len < pbname_len) {
-					continue;
-				}
-
-				/* make sure pbname_len takes us to the start of a path component */
-				if(pbname_len != pkgfile_len && pkgfile[pkgfile_len - pbname_len - 1] != '/') {
-					continue;
-				}
-
-				/* compare basename with bname */
-				if(strncmp(pkgfile + pkgfile_len - pbname_len, bname, bname_len) != 0) {
-					continue;
-				}
-
-				/* concatenate our dirname and the root path */
-				if(rootlen + 1 + pkgfile_len - pbname_len > PATH_MAX) {
-					path[rootlen] = '\0'; /* reset path for error message */
-					pm_printf(ALPM_LOG_ERROR, _("path too long: %s%s\n"), path, pkgfile);
-					continue;
-				}
-				strncpy(path + rootlen, pkgfile, pkgfile_len - pbname_len);
-				path[rootlen + pkgfile_len - pbname_len] = '\0';
-
-				ppath = realpath(path, NULL);
-				if(!ppath) {
-					pm_printf(ALPM_LOG_ERROR, _("cannot determine real path for '%s': %s\n"),
-							path, strerror(errno));
-					continue;
-				}
-
-				if(strcmp(ppath, rpath) == 0) {
-					print_query_fileowner(filename, info);
-					found = 1;
-					free(ppath);
-					break;
-				}
-				free(ppath);
+			if(alpm_filelist_contains(alpm_pkg_get_files(i->data), rel_path)) {
+				print_query_fileowner(rpath, i->data);
+				found = 1;
 			}
 		}
 		if(!found) {
@@ -252,8 +221,6 @@ targcleanup:
 			ret++;
 		}
 		free(filename);
-		free(rpath);
-		free(dname);
 	}
 
 	return ret;
@@ -266,47 +233,6 @@ static int query_search(alpm_list_t *targets)
 	return dump_pkg_search(db_local, targets, 0);
 }
 
-static int query_group(alpm_list_t *targets)
-{
-	alpm_list_t *i, *j;
-	const char *grpname = NULL;
-	int ret = 0;
-	alpm_db_t *db_local = alpm_get_localdb(config->handle);
-
-	if(targets == NULL) {
-		for(j = alpm_db_get_groupcache(db_local); j; j = alpm_list_next(j)) {
-			alpm_group_t *grp = j->data;
-			const alpm_list_t *p;
-
-			for(p = grp->packages; p; p = alpm_list_next(p)) {
-				alpm_pkg_t *pkg = p->data;
-				printf("%s %s\n", grp->name, alpm_pkg_get_name(pkg));
-			}
-		}
-	} else {
-		for(i = targets; i; i = alpm_list_next(i)) {
-			alpm_group_t *grp;
-			grpname = i->data;
-			grp = alpm_db_get_group(db_local, grpname);
-			if(grp) {
-				const alpm_list_t *p;
-				for(p = grp->packages; p; p = alpm_list_next(p)) {
-					if(!config->quiet) {
-						printf("%s %s\n", grpname,
-								alpm_pkg_get_name(p->data));
-					} else {
-						printf("%s\n", alpm_pkg_get_name(p->data));
-					}
-				}
-			} else {
-				pm_printf(ALPM_LOG_ERROR, _("group '%s' was not found\n"), grpname);
-				ret++;
-			}
-		}
-	}
-	return ret;
-}
-
 static unsigned short pkg_get_locality(alpm_pkg_t *pkg)
 {
 	const char *pkgname = alpm_pkg_get_name(pkg);
@@ -315,17 +241,22 @@ static unsigned short pkg_get_locality(alpm_pkg_t *pkg)
 
 	for(j = sync_dbs; j; j = alpm_list_next(j)) {
 		if(alpm_db_get_pkg(j->data, pkgname)) {
-			return PKG_LOCALITY_LOCAL;
+			return PKG_LOCALITY_NATIVE;
 		}
 	}
 	return PKG_LOCALITY_FOREIGN;
 }
 
-static int is_unrequired(alpm_pkg_t *pkg)
+static int is_unrequired(alpm_pkg_t *pkg, unsigned short level)
 {
 	alpm_list_t *requiredby = alpm_pkg_compute_requiredby(pkg);
 	if(requiredby == NULL) {
-		return 1;
+		if(level == 1) {
+			requiredby = alpm_pkg_compute_optionalfor(pkg);
+		}
+		if(requiredby == NULL) {
+			return 1;
+		}
 	}
 	FREELIST(requiredby);
 	return 0;
@@ -344,11 +275,11 @@ static int filter(alpm_pkg_t *pkg)
 		return 0;
 	}
 	/* check if this pkg is or isn't in a sync DB */
-	if(config->op_q_locality && config->op_q_locality & pkg_get_locality(pkg)) {
+	if(config->op_q_locality && config->op_q_locality != pkg_get_locality(pkg)) {
 		return 0;
 	}
 	/* check if this pkg is unrequired */
-	if(config->op_q_unrequired && !is_unrequired(pkg)) {
+	if(config->op_q_unrequired && !is_unrequired(pkg, config->op_q_unrequired)) {
 		return 0;
 	}
 	/* check if this pkg is outdated */
@@ -387,10 +318,68 @@ static int display(alpm_pkg_t *pkg)
 			&& !config->op_q_changelog && !config->op_q_check) {
 		if(!config->quiet) {
 			const colstr_t *colstr = &config->colstr;
-			printf("%s%s %s%s%s\n", colstr->title, alpm_pkg_get_name(pkg),
+			printf("%s%s %s%s%s", colstr->title, alpm_pkg_get_name(pkg),
 					colstr->version, alpm_pkg_get_version(pkg), colstr->nocolor);
+
+			if(config->op_q_upgrade) {
+				alpm_pkg_t *newpkg = alpm_sync_newversion(pkg, alpm_get_syncdbs(config->handle));
+				printf(" -> %s%s%s", colstr->version, alpm_pkg_get_version(newpkg), colstr->nocolor);
+
+				if(alpm_pkg_should_ignore(config->handle, pkg)) {
+					printf(" %s", _("[ignored]"));
+				}
+			}
+
+			printf("\n");
 		} else {
 			printf("%s\n", alpm_pkg_get_name(pkg));
+		}
+	}
+	return ret;
+}
+
+static int query_group(alpm_list_t *targets)
+{
+	alpm_list_t *i, *j;
+	const char *grpname = NULL;
+	int ret = 0;
+	alpm_db_t *db_local = alpm_get_localdb(config->handle);
+
+	if(targets == NULL) {
+		for(j = alpm_db_get_groupcache(db_local); j; j = alpm_list_next(j)) {
+			alpm_group_t *grp = j->data;
+			const alpm_list_t *p;
+
+			for(p = grp->packages; p; p = alpm_list_next(p)) {
+				alpm_pkg_t *pkg = p->data;
+				if(!filter(pkg)) {
+					continue;
+				}
+				printf("%s %s\n", grp->name, alpm_pkg_get_name(pkg));
+			}
+		}
+	} else {
+		for(i = targets; i; i = alpm_list_next(i)) {
+			alpm_group_t *grp;
+			grpname = i->data;
+			grp = alpm_db_get_group(db_local, grpname);
+			if(grp) {
+				const alpm_list_t *p;
+				for(p = grp->packages; p; p = alpm_list_next(p)) {
+					if(!filter(p->data)) {
+						continue;
+					}
+					if(!config->quiet) {
+						printf("%s %s\n", grpname,
+								alpm_pkg_get_name(p->data));
+					} else {
+						printf("%s\n", alpm_pkg_get_name(p->data));
+					}
+				}
+			} else {
+				pm_printf(ALPM_LOG_ERROR, _("group '%s' was not found\n"), grpname);
+				ret++;
+			}
 		}
 	}
 	return ret;
@@ -517,4 +506,4 @@ int pacman_query(alpm_list_t *targets)
 	return ret;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

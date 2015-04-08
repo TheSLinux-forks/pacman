@@ -1,7 +1,7 @@
 /*
  *  pacman.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -24,7 +24,6 @@
 #define PACKAGE_VERSION GIT_VERSION
 #endif
 
-#include <ctype.h> /* isspace */
 #include <stdlib.h> /* atoi */
 #include <stdio.h>
 #include <ctype.h> /* isspace */
@@ -98,11 +97,11 @@ static void usage(int op, const char * const myname)
 	alpm_list_t *list = NULL, *i;
 	/* prefetch some strings for usage below, which moves a lot of calls
 	 * out of gettext. */
-	char const * const str_opt = _("options");
-	char const * const str_file = _("file(s)");
-	char const * const str_pkg = _("package(s)");
-	char const * const str_usg = _("usage");
-	char const * const str_opr = _("operation");
+	char const *const str_opt  = _("options");
+	char const *const str_file = _("file(s)");
+	char const *const str_pkg  = _("package(s)");
+	char const *const str_usg  = _("usage");
+	char const *const str_opr  = _("operation");
 
 	/* please limit your strings to 80 characters in width */
 	if(op == PM_OP_MAIN) {
@@ -139,28 +138,31 @@ static void usage(int op, const char * const myname)
 			addlist(_("  -e, --explicit       list packages explicitly installed [filter]\n"));
 			addlist(_("  -g, --groups         view all members of a package group\n"));
 			addlist(_("  -i, --info           view package information (-ii for backup files)\n"));
-			addlist(_("  -k, --check          check that the files owned by the package(s) are present\n"));
-			addlist(_("  -l, --list           list the contents of the queried package\n"));
+			addlist(_("  -k, --check          check that package files exist (-kk for file properties)\n"));
+			addlist(_("  -l, --list           list the files owned by the queried package\n"));
 			addlist(_("  -m, --foreign        list installed packages not found in sync db(s) [filter]\n"));
 			addlist(_("  -n, --native         list installed packages only found in sync db(s) [filter]\n"));
 			addlist(_("  -o, --owns <file>    query the package that owns <file>\n"));
 			addlist(_("  -p, --file <package> query a package file instead of the database\n"));
 			addlist(_("  -q, --quiet          show less information for query and search\n"));
 			addlist(_("  -s, --search <regex> search locally-installed packages for matching strings\n"));
-			addlist(_("  -t, --unrequired     list packages not required by any package [filter]\n"));
+			addlist(_("  -t, --unrequired     list packages not (optionally) required by any\n"
+			          "                       package (-tt to ignore optdepends) [filter]\n"));
 			addlist(_("  -u, --upgrades       list outdated packages [filter]\n"));
 		} else if(op == PM_OP_SYNC) {
 			printf("%s:  %s {-S --sync} [%s] [%s]\n", str_usg, myname, str_opt, str_pkg);
 			printf("%s:\n", str_opt);
 			addlist(_("  -c, --clean          remove old packages from cache directory (-cc for all)\n"));
-			addlist(_("  -g, --groups         view all members of a package group\n"));
-			addlist(_("  -i, --info           view package information\n"));
+			addlist(_("  -g, --groups         view all members of a package group\n"
+			          "                       (-gg to view all groups and members)\n"));
+			addlist(_("  -i, --info           view package information (-ii for extended information)\n"));
 			addlist(_("  -l, --list <repo>    view a list of packages in a repo\n"));
 			addlist(_("  -q, --quiet          show less information for query and search\n"));
 			addlist(_("  -s, --search <regex> search remote repositories for matching strings\n"));
-			addlist(_("  -u, --sysupgrade     upgrade installed packages (-uu allows downgrade)\n"));
+			addlist(_("  -u, --sysupgrade     upgrade installed packages (-uu enables downgrades)\n"));
 			addlist(_("  -w, --downloadonly   download packages but do not install/upgrade anything\n"));
-			addlist(_("  -y, --refresh        download fresh package databases from the server\n"));
+			addlist(_("  -y, --refresh        download fresh package databases from the server\n"
+			          "                       (-yy to force a refresh even if up to date)\n"));
 			addlist(_("      --needed         do not reinstall up to date packages\n"));
 		} else if(op == PM_OP_DATABASE) {
 			printf("%s:  %s {-D --database} <%s> <%s>\n", str_usg, myname, str_opt, str_pkg);
@@ -183,6 +185,8 @@ static void usage(int op, const char * const myname)
 				/* pass through */
 			case PM_OP_REMOVE:
 				addlist(_("  -d, --nodeps         skip dependency version checks (-dd to skip all checks)\n"));
+				addlist(_("      --assume-installed <package=version>\n"
+				          "                       add a virtual package to satisfy dependencies\n"));
 				addlist(_("      --dbonly         only modify database entries, not package files\n"));
 				addlist(_("      --noprogressbar  do not show a progress bar when downloading files\n"));
 				addlist(_("      --noscriptlet    do not execute the install scriptlet if one exists\n"));
@@ -203,6 +207,7 @@ static void usage(int op, const char * const myname)
 		addlist(_("      --gpgdir <path>  set an alternate home directory for GnuPG\n"));
 		addlist(_("      --logfile <path> set an alternate log file\n"));
 		addlist(_("      --noconfirm      do not ask for any confirmation\n"));
+		addlist(_("      --confirm        always ask for confirmation\n"));
 	}
 	list = alpm_list_msort(list, alpm_list_count(list), options_cmp);
 	for(i = list; i; i = alpm_list_next(i)) {
@@ -218,7 +223,7 @@ static void version(void)
 {
 	printf("\n");
 	printf(" .--.                  Pacman v%s - libalpm v%s\n", PACKAGE_VERSION, alpm_version());
-	printf("/ _.-' .-.  .-.  .-.   Copyright (C) 2006-2013 Pacman Development Team\n");
+	printf("/ _.-' .-.  .-.  .-.   Copyright (C) 2006-2014 Pacman Development Team\n");
 	printf("\\  '-. '-'  '-'  '-'   Copyright (C) 2002-2006 Judd Vinet\n");
 	printf(" '--'\n");
 	printf(_("                       This program may be freely redistributed under\n"
@@ -261,18 +266,18 @@ static void setuseragent(void)
  */
 static void cleanup(int ret)
 {
-	/* free alpm library resources */
-	if(config->handle && alpm_release(config->handle) == -1) {
-		pm_printf(ALPM_LOG_ERROR, "error releasing alpm library\n");
-	}
-
-	/* free memory */
-	FREELIST(pm_targets);
 	if(config) {
+		/* free alpm library resources */
+		if(config->handle && alpm_release(config->handle) == -1) {
+			pm_printf(ALPM_LOG_ERROR, "error releasing alpm library\n");
+		}
+
 		config_free(config);
 		config = NULL;
 	}
 
+	/* free memory */
+	FREELIST(pm_targets);
 	exit(ret);
 }
 
@@ -288,7 +293,7 @@ static ssize_t xwrite(int fd, const void *buf, size_t count)
 }
 
 /** Catches thrown signals. Performs necessary cleanup to ensure database is
- * in a consistant state.
+ * in a consistent state.
  * @param signum the thrown signal
  */
 static void handler(int signum)
@@ -312,27 +317,36 @@ static void handler(int signum)
 			/* a transaction is being interrupted, don't exit pacman yet. */
 			return;
 		}
+	} else if(signum == SIGWINCH) {
+		columns_cache_reset();
+		return;
 	}
-	/* SIGINT: no commiting transaction, release it now and then exit pacman
-	 * SIGHUP, SIGTERM: release no matter what */
+	/* SIGINT/SIGHUP: no committing transaction, release it now and then exit pacman
+	 * SIGTERM: release no matter what */
 	alpm_trans_release(config->handle);
 	/* output a newline to be sure we clear any line we may be on */
 	xwrite(out, "\n", 1);
 	cleanup(128 + signum);
 }
 
-#define check_optarg() if(!optarg) { return 1; }
+static void invalid_opt(int used, const char *opt1, const char *opt2)
+{
+	if(used) {
+		pm_printf(ALPM_LOG_ERROR,
+				_("invalid option: '%s' and '%s' may not be used together\n"),
+				opt1, opt2);
+		cleanup(1);
+	}
+}
 
 static int parsearg_util_addlist(alpm_list_t **list)
 {
-	alpm_list_t *split, *item;
+	char *i, *save = NULL;
 
-	check_optarg();
-	split = strsplit(optarg, ',');
-	for(item = split; item; item = alpm_list_next(item)) {
-		*list = alpm_list_add(*list, item->data);
+	for(i = strtok_r(optarg, ",", &save); i; i = strtok_r(NULL, ",", &save)) {
+		*list = alpm_list_add(*list, strdup(i));
 	}
-	alpm_list_free(split);
+
 	return 0;
 }
 
@@ -383,16 +397,13 @@ static int parsearg_global(int opt)
 {
 	switch(opt) {
 		case OP_ARCH:
-			check_optarg();
 			config_set_arch(optarg);
 			break;
 		case OP_ASK:
-			check_optarg();
 			config->noask = 1;
 			config->ask = (unsigned int)atoi(optarg);
 			break;
 		case OP_CACHEDIR:
-			check_optarg();
 			config->cachedirs = alpm_list_add(config->cachedirs, strdup(optarg));
 			break;
 		case OP_COLOR:
@@ -410,10 +421,7 @@ static int parsearg_global(int opt)
 			enable_colors(config->color);
 			break;
 		case OP_CONFIG:
-			check_optarg();
-			if(config->configfile) {
-				free(config->configfile);
-			}
+			free(config->configfile);
 			config->configfile = strndup(optarg, PATH_MAX);
 			break;
 		case OP_DEBUG:
@@ -440,20 +448,35 @@ static int parsearg_global(int opt)
 			config->noprogressbar = 1;
 			break;
 		case OP_GPGDIR:
+			free(config->gpgdir);
 			config->gpgdir = strdup(optarg);
 			break;
 		case OP_LOGFILE:
-			check_optarg();
+			free(config->logfile);
 			config->logfile = strndup(optarg, PATH_MAX);
 			break;
-		case OP_NOCONFIRM: config->noconfirm = 1; break;
+		case OP_NOCONFIRM:
+			config->noconfirm = 1;
+			break;
+		case OP_CONFIRM:
+			config->noconfirm = 0;
+			break;
+		case OP_DBPATH:
 		case 'b':
-			check_optarg();
+			free(config->dbpath);
 			config->dbpath = strdup(optarg);
 			break;
-		case 'r': check_optarg(); config->rootdir = strdup(optarg); break;
-		case 'v': (config->verbose)++; break;
-		default: return 1;
+		case OP_ROOT:
+		case 'r':
+			free(config->rootdir);
+			config->rootdir = strdup(optarg);
+			break;
+		case OP_VERBOSE:
+		case 'v':
+			(config->verbose)++;
+			break;
+		default:
+			return 1;
 	}
 	return 0;
 }
@@ -468,33 +491,128 @@ static int parsearg_database(int opt)
 	return 0;
 }
 
+static void checkargs_database(void)
+{
+	invalid_opt(config->flags & ALPM_TRANS_FLAG_ALLDEPS
+			&& config->flags & ALPM_TRANS_FLAG_ALLEXPLICIT,
+			"--asdeps", "--asexplicit");
+}
+
 static int parsearg_query(int opt)
 {
 	switch(opt) {
-		case 'c': config->op_q_changelog = 1; break;
-		case 'd': config->op_q_deps = 1; break;
-		case 'e': config->op_q_explicit = 1; break;
-		case 'g': (config->group)++; break;
-		case 'i': (config->op_q_info)++; break;
-		case 'k': (config->op_q_check)++; break;
-		case 'l': config->op_q_list = 1; break;
-		case 'm': config->op_q_locality |= PKG_LOCALITY_LOCAL; break;
-		case 'n': config->op_q_locality |= PKG_LOCALITY_FOREIGN; break;
-		case 'o': config->op_q_owns = 1; break;
-		case 'p': config->op_q_isfile = 1; break;
-		case 'q': config->quiet = 1; break;
-		case 's': config->op_q_search = 1; break;
-		case 't': config->op_q_unrequired = 1; break;
-		case 'u': config->op_q_upgrade = 1; break;
-		default: return 1;
+		case OP_CHANGELOG:
+		case 'c':
+			config->op_q_changelog = 1;
+			break;
+		case OP_DEPS:
+		case 'd':
+			config->op_q_deps = 1;
+			break;
+		case OP_EXPLICIT:
+		case 'e':
+			config->op_q_explicit = 1;
+			break;
+		case OP_GROUPS:
+		case 'g':
+			(config->group)++;
+			break;
+		case OP_INFO:
+		case 'i':
+			(config->op_q_info)++;
+			break;
+		case OP_CHECK:
+		case 'k':
+			(config->op_q_check)++;
+			break;
+		case OP_LIST:
+		case 'l':
+			config->op_q_list = 1;
+			break;
+		case OP_FOREIGN:
+		case 'm':
+			config->op_q_locality |= PKG_LOCALITY_FOREIGN;
+			break;
+		case OP_NATIVE:
+		case 'n':
+			config->op_q_locality |= PKG_LOCALITY_NATIVE;
+			break;
+		case OP_OWNS:
+		case 'o':
+			config->op_q_owns = 1;
+			break;
+		case OP_FILE:
+		case 'p':
+			config->op_q_isfile = 1;
+			break;
+		case OP_QUIET:
+		case 'q':
+			config->quiet = 1;
+			break;
+		case OP_SEARCH:
+		case 's':
+			config->op_q_search = 1;
+			break;
+		case OP_UNREQUIRED:
+		case 't':
+			(config->op_q_unrequired)++;
+			break;
+		case OP_UPGRADES:
+		case 'u':
+			config->op_q_upgrade = 1;
+			break;
+		default:
+			return 1;
 	}
 	return 0;
+}
+
+static void checkargs_query_display_opts(const char *opname) {
+	invalid_opt(config->op_q_changelog, opname, "--changelog");
+	invalid_opt(config->op_q_check, opname, "--check");
+	invalid_opt(config->op_q_info, opname, "--info");
+	invalid_opt(config->op_q_list, opname, "--list");
+}
+
+static void checkargs_query_filter_opts(const char *opname) {
+	invalid_opt(config->op_q_deps, opname, "--deps");
+	invalid_opt(config->op_q_explicit, opname, "--explicit");
+	invalid_opt(config->op_q_upgrade, opname, "--upgrade");
+	invalid_opt(config->op_q_unrequired, opname, "--unrequired");
+	invalid_opt(config->op_q_locality & PKG_LOCALITY_NATIVE, opname, "--native");
+	invalid_opt(config->op_q_locality & PKG_LOCALITY_FOREIGN, opname, "--foreign");
+}
+
+static void checkargs_query(void)
+{
+	if(config->op_q_isfile) {
+		invalid_opt(config->group, "--file", "--groups");
+		invalid_opt(config->op_q_search, "--file", "--search");
+		invalid_opt(config->op_q_owns, "--file", "--owns");
+	} else if(config->op_q_search) {
+		invalid_opt(config->group, "--search", "--groups");
+		invalid_opt(config->op_q_owns, "--search", "--owns");
+		checkargs_query_display_opts("--search");
+		checkargs_query_filter_opts("--search");
+	} else if(config->op_q_owns) {
+		invalid_opt(config->group, "--owns", "--groups");
+		checkargs_query_display_opts("--owns");
+		checkargs_query_filter_opts("--owns");
+	} else if(config->group) {
+		checkargs_query_display_opts("--groups");
+	}
+
+	invalid_opt(config->op_q_deps && config->op_q_explicit, "--deps", "--explicit");
+	invalid_opt((config->op_q_locality & PKG_LOCALITY_NATIVE) &&
+				 (config->op_q_locality & PKG_LOCALITY_FOREIGN),
+			"--native", "--foreign");
 }
 
 /* options common to -S -R -U */
 static int parsearg_trans(int opt)
 {
 	switch(opt) {
+		case OP_NODEPS:
 		case 'd':
 			if(config->flags & ALPM_TRANS_FLAG_NODEPVERSION) {
 				config->flags |= ALPM_TRANS_FLAG_NODEPS;
@@ -502,26 +620,59 @@ static int parsearg_trans(int opt)
 				config->flags |= ALPM_TRANS_FLAG_NODEPVERSION;
 			}
 			break;
-		case OP_DBONLY: config->flags |= ALPM_TRANS_FLAG_DBONLY; break;
-		case OP_NOPROGRESSBAR: config->noprogressbar = 1; break;
-		case OP_NOSCRIPTLET: config->flags |= ALPM_TRANS_FLAG_NOSCRIPTLET; break;
-		case 'p': config->print = 1; break;
+		case OP_DBONLY:
+			config->flags |= ALPM_TRANS_FLAG_DBONLY;
+			config->flags |= ALPM_TRANS_FLAG_NOSCRIPTLET;
+			break;
+		case OP_NOPROGRESSBAR:
+			config->noprogressbar = 1;
+			break;
+		case OP_NOSCRIPTLET:
+			config->flags |= ALPM_TRANS_FLAG_NOSCRIPTLET;
+			break;
+		case OP_PRINT:
+		case 'p':
+			config->print = 1;
+			break;
 		case OP_PRINTFORMAT:
-			check_optarg();
+			config->print = 1;
+			free(config->print_format);
 			config->print_format = strdup(optarg);
 			break;
-		default: return 1;
+		case OP_ASSUMEINSTALLED:
+			parsearg_util_addlist(&(config->assumeinstalled));
+			break;
+		default:
+			return 1;
 	}
 	return 0;
 }
 
+static void checkargs_trans(void)
+{
+	if(config->print) {
+		invalid_opt(config->flags & ALPM_TRANS_FLAG_DBONLY,
+				"--print", "--dbonly");
+		invalid_opt(config->flags & ALPM_TRANS_FLAG_NOSCRIPTLET,
+				"--print", "--noscriptlet");
+	}
+}
+
 static int parsearg_remove(int opt)
 {
-	if(parsearg_trans(opt) == 0)
+	if(parsearg_trans(opt) == 0) {
 		return 0;
+	}
 	switch(opt) {
-		case 'c': config->flags |= ALPM_TRANS_FLAG_CASCADE; break;
-		case 'n': config->flags |= ALPM_TRANS_FLAG_NOSAVE; break;
+		case OP_CASCADE:
+		case 'c':
+			config->flags |= ALPM_TRANS_FLAG_CASCADE;
+			break;
+		case OP_NOSAVE:
+		case 'n':
+			config->flags |= ALPM_TRANS_FLAG_NOSAVE;
+			break;
+		case OP_RECURSIVE:
 		case 's':
 			if(config->flags & ALPM_TRANS_FLAG_RECURSE) {
 				config->flags |= ALPM_TRANS_FLAG_RECURSEALL;
@@ -529,17 +680,32 @@ static int parsearg_remove(int opt)
 				config->flags |= ALPM_TRANS_FLAG_RECURSE;
 			}
 			break;
-		case 'u': config->flags |= ALPM_TRANS_FLAG_UNNEEDED; break;
-		default: return 1;
+		case OP_UNNEEDED:
+		case 'u':
+			config->flags |= ALPM_TRANS_FLAG_UNNEEDED;
+			break;
+		default:
+			return 1;
 	}
 	return 0;
+}
+
+static void checkargs_remove(void)
+{
+	checkargs_trans();
+	if(config->flags & ALPM_TRANS_FLAG_NOSAVE) {
+		invalid_opt(config->print, "--nosave", "--print");
+		invalid_opt(config->flags & ALPM_TRANS_FLAG_DBONLY,
+				"--nosave", "--dbonly");
+	}
 }
 
 /* options common to -S -U */
 static int parsearg_upgrade(int opt)
 {
-	if(parsearg_trans(opt) == 0)
+	if(parsearg_trans(opt) == 0) {
 		return 0;
+	}
 	switch(opt) {
 		case OP_FORCE: config->flags |= ALPM_TRANS_FLAG_FORCE; break;
 		case OP_ASDEPS: config->flags |= ALPM_TRANS_FLAG_ALLDEPS; break;
@@ -556,27 +722,94 @@ static int parsearg_upgrade(int opt)
 	return 0;
 }
 
+static void checkargs_upgrade(void)
+{
+	checkargs_trans();
+	invalid_opt(config->flags & ALPM_TRANS_FLAG_ALLDEPS
+			&& config->flags & ALPM_TRANS_FLAG_ALLEXPLICIT,
+			"--asdeps", "--asexplicit");
+}
+
 static int parsearg_sync(int opt)
 {
-	if(parsearg_upgrade(opt) == 0)
+	if(parsearg_upgrade(opt) == 0) {
 		return 0;
+	}
 	switch(opt) {
-		case 'c': (config->op_s_clean)++; break;
-		case 'g': (config->group)++; break;
-		case 'i': (config->op_s_info)++; break;
-		case 'l': config->op_q_list = 1; break;
-		case 'q': config->quiet = 1; break;
-		case 's': config->op_s_search = 1; break;
-		case 'u': (config->op_s_upgrade)++; break;
+		case OP_CLEAN:
+		case 'c':
+			(config->op_s_clean)++;
+			break;
+		case OP_GROUPS:
+		case 'g':
+			(config->group)++;
+			break;
+		case OP_INFO:
+		case 'i':
+			(config->op_s_info)++;
+			break;
+		case OP_LIST:
+		case 'l':
+			config->op_q_list = 1;
+			break;
+		case OP_QUIET:
+		case 'q':
+			config->quiet = 1;
+			break;
+		case OP_SEARCH:
+		case 's':
+			config->op_s_search = 1;
+			break;
+		case OP_SYSUPGRADE:
+		case 'u':
+			(config->op_s_upgrade)++;
+			break;
+		case OP_DOWNLOADONLY:
 		case 'w':
 			config->op_s_downloadonly = 1;
 			config->flags |= ALPM_TRANS_FLAG_DOWNLOADONLY;
 			config->flags |= ALPM_TRANS_FLAG_NOCONFLICTS;
 			break;
-		case 'y': (config->op_s_sync)++; break;
-		default: return 1;
+		case OP_REFRESH:
+		case 'y':
+			(config->op_s_sync)++;
+			break;
+		default:
+			return 1;
 	}
 	return 0;
+}
+
+static void checkargs_sync(void)
+{
+	checkargs_upgrade();
+	if(config->op_s_clean) {
+		invalid_opt(config->group, "--clean", "--groups");
+		invalid_opt(config->op_s_info, "--clean", "--info");
+		invalid_opt(config->op_q_list, "--clean", "--list");
+		invalid_opt(config->op_s_sync, "--clean", "--refresh");
+		invalid_opt(config->op_s_search, "--clean", "--search");
+		invalid_opt(config->op_s_upgrade, "--clean", "--sysupgrade");
+		invalid_opt(config->op_s_downloadonly, "--clean", "--downloadonly");
+	} else if(config->op_s_info) {
+		invalid_opt(config->group, "--info", "--groups");
+		invalid_opt(config->op_q_list, "--info", "--list");
+		invalid_opt(config->op_s_search, "--info", "--search");
+		invalid_opt(config->op_s_upgrade, "--info", "--sysupgrade");
+		invalid_opt(config->op_s_downloadonly, "--info", "--downloadonly");
+	} else if(config->op_s_search) {
+		invalid_opt(config->group, "--search", "--groups");
+		invalid_opt(config->op_q_list, "--search", "--list");
+		invalid_opt(config->op_s_upgrade, "--search", "--sysupgrade");
+		invalid_opt(config->op_s_downloadonly, "--search", "--downloadonly");
+	} else if(config->op_q_list) {
+		invalid_opt(config->group, "--list", "--groups");
+		invalid_opt(config->op_s_upgrade, "--list", "--sysupgrade");
+		invalid_opt(config->op_s_downloadonly, "--list", "--downloadonly");
+	} else if(config->group) {
+		invalid_opt(config->op_s_upgrade, "--groups", "--sysupgrade");
+		invalid_opt(config->op_s_downloadonly, "--groups", "--downloadonly");
+	}
 }
 
 /** Parse command-line arguments for each operation.
@@ -599,39 +832,41 @@ static int parseargs(int argc, char *argv[])
 		{"deptest",    no_argument,       0, 'T'}, /* used by makepkg */
 		{"upgrade",    no_argument,       0, 'U'},
 		{"version",    no_argument,       0, 'V'},
-		{"dbpath",     required_argument, 0, 'b'},
-		{"cascade",    no_argument,       0, 'c'},
-		{"changelog",  no_argument,       0, 'c'},
-		{"clean",      no_argument,       0, 'c'},
-		{"nodeps",     no_argument,       0, 'd'},
-		{"deps",       no_argument,       0, 'd'},
-		{"explicit",   no_argument,       0, 'e'},
-		{"groups",     no_argument,       0, 'g'},
 		{"help",       no_argument,       0, 'h'},
-		{"info",       no_argument,       0, 'i'},
-		{"check",      no_argument,       0, 'k'},
-		{"list",       no_argument,       0, 'l'},
-		{"foreign",    no_argument,       0, 'm'},
-		{"native",     no_argument,       0, 'n'},
-		{"nosave",     no_argument,       0, 'n'},
-		{"owns",       no_argument,       0, 'o'},
-		{"file",       no_argument,       0, 'p'},
-		{"print",      no_argument,       0, 'p'},
-		{"quiet",      no_argument,       0, 'q'},
-		{"root",       required_argument, 0, 'r'},
-		{"recursive",  no_argument,       0, 's'},
-		{"search",     no_argument,       0, 's'},
-		{"unrequired", no_argument,       0, 't'},
-		{"upgrades",   no_argument,       0, 'u'},
-		{"sysupgrade", no_argument,       0, 'u'},
-		{"unneeded",   no_argument,       0, 'u'},
-		{"verbose",    no_argument,       0, 'v'},
-		{"downloadonly", no_argument,     0, 'w'},
-		{"refresh",    no_argument,       0, 'y'},
 
+		{"dbpath",     required_argument, 0, OP_DBPATH},
+		{"cascade",    no_argument,       0, OP_CASCADE},
+		{"changelog",  no_argument,       0, OP_CHANGELOG},
+		{"clean",      no_argument,       0, OP_CLEAN},
+		{"nodeps",     no_argument,       0, OP_NODEPS},
+		{"deps",       no_argument,       0, OP_DEPS},
+		{"explicit",   no_argument,       0, OP_EXPLICIT},
+		{"groups",     no_argument,       0, OP_GROUPS},
+		{"info",       no_argument,       0, OP_INFO},
+		{"check",      no_argument,       0, OP_CHECK},
+		{"list",       no_argument,       0, OP_LIST},
+		{"foreign",    no_argument,       0, OP_FOREIGN},
+		{"native",     no_argument,       0, OP_NATIVE},
+		{"nosave",     no_argument,       0, OP_NOSAVE},
+		{"owns",       no_argument,       0, OP_OWNS},
+		{"file",       no_argument,       0, OP_FILE},
+		{"print",      no_argument,       0, OP_PRINT},
+		{"quiet",      no_argument,       0, OP_QUIET},
+		{"root",       required_argument, 0, OP_ROOT},
+		{"recursive",  no_argument,       0, OP_RECURSIVE},
+		{"search",     no_argument,       0, OP_SEARCH},
+		{"unrequired", no_argument,       0, OP_UNREQUIRED},
+		{"upgrades",   no_argument,       0, OP_UPGRADES},
+		{"sysupgrade", no_argument,       0, OP_SYSUPGRADE},
+		{"unneeded",   no_argument,       0, OP_UNNEEDED},
+		{"verbose",    no_argument,       0, OP_VERBOSE},
+		{"downloadonly", no_argument,     0, OP_DOWNLOADONLY},
+		{"refresh",    no_argument,       0, OP_REFRESH},
 		{"noconfirm",  no_argument,       0, OP_NOCONFIRM},
+		{"confirm",    no_argument,       0, OP_CONFIRM},
 		{"config",     required_argument, 0, OP_CONFIG},
 		{"ignore",     required_argument, 0, OP_IGNORE},
+		{"assume-installed",     required_argument, 0, OP_ASSUMEINSTALLED},
 		{"debug",      optional_argument, 0, OP_DEBUG},
 		{"force",      no_argument,       0, OP_FORCE},
 		{"noprogressbar", no_argument,    0, OP_NOPROGRESSBAR},
@@ -652,10 +887,8 @@ static int parseargs(int argc, char *argv[])
 	};
 
 	/* parse operation */
-	while((opt = getopt_long(argc, argv, optstring, opts, &option_index))) {
-		if(opt < 0) {
-			break;
-		} else if(opt == 0) {
+	while((opt = getopt_long(argc, argv, optstring, opts, &option_index)) != -1) {
+		if(opt == 0) {
 			continue;
 		} else if(opt == '?') {
 			/* unknown option, getopt printed an error */
@@ -670,19 +903,17 @@ static int parseargs(int argc, char *argv[])
 	}
 	if(config->help) {
 		usage(config->op, mbasename(argv[0]));
-		return 2;
+		cleanup(0);
 	}
 	if(config->version) {
 		version();
-		return 2;
+		cleanup(0);
 	}
 
 	/* parse all other options */
 	optind = 1;
-	while((opt = getopt_long(argc, argv, optstring, opts, &option_index))) {
-		if(opt < 0) {
-			break;
-		} else if(opt == 0) {
+	while((opt = getopt_long(argc, argv, optstring, opts, &option_index)) != -1) {
+		if(opt == 0) {
 			continue;
 		} else if(opt == '?') {
 			/* this should have failed during first pass already */
@@ -721,7 +952,12 @@ static int parseargs(int argc, char *argv[])
 		result = parsearg_global(opt);
 		if(result != 0) {
 			/* global option parsing failed, abort */
-			pm_printf(ALPM_LOG_ERROR, _("invalid option\n"));
+			if(opt < OP_LONG_FLAG_MIN) {
+				pm_printf(ALPM_LOG_ERROR, _("invalid option '-%c'\n"), opt);
+			} else {
+				pm_printf(ALPM_LOG_ERROR, _("invalid option '--%s'\n"),
+						opts[option_index].name);
+			}
 			return result;
 		}
 	}
@@ -730,6 +966,29 @@ static int parseargs(int argc, char *argv[])
 		/* add the target to our target array */
 		pm_targets = alpm_list_add(pm_targets, strdup(argv[optind]));
 		optind++;
+	}
+
+	switch(config->op) {
+		case PM_OP_DATABASE:
+			checkargs_database();
+			break;
+		case PM_OP_DEPTEST:
+			/* no conflicting options */
+			break;
+		case PM_OP_SYNC:
+			checkargs_sync();
+			break;
+		case PM_OP_QUERY:
+			checkargs_query();
+			break;
+		case PM_OP_REMOVE:
+			checkargs_remove();
+			break;
+		case PM_OP_UPGRADE:
+			checkargs_upgrade();
+			break;
+		default:
+			break;
 	}
 
 	return 0;
@@ -775,14 +1034,14 @@ int main(int argc, char *argv[])
 	int ret = 0;
 	size_t i;
 	struct sigaction new_action, old_action;
-	const int signals[] = { SIGHUP, SIGINT, SIGTERM, SIGSEGV };
-	uid_t myuid = geteuid();
+	const int signals[] = { SIGHUP, SIGINT, SIGTERM, SIGSEGV, SIGWINCH };
+	uid_t myuid = getuid();
 
 	/* Set signal handlers */
 	/* Set up the structure to specify the new action. */
 	new_action.sa_handler = handler;
 	sigemptyset(&new_action.sa_mask);
-	new_action.sa_flags = 0;
+	new_action.sa_flags = SA_RESTART;
 
 	/* assign our handler to any signals we care about */
 	for(i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
@@ -802,7 +1061,10 @@ int main(int argc, char *argv[])
 	setuseragent();
 
 	/* init config data */
-	config = config_new();
+	if(!(config = config_new())) {
+		/* config_new prints the appropriate error message */
+		cleanup(1);
+	}
 
 	/* disable progressbar if the output is redirected */
 	if(!isatty(fileno(stdout))) {
@@ -827,24 +1089,28 @@ int main(int argc, char *argv[])
 	/* we support reading targets from stdin if a cmdline parameter is '-' */
 	if(alpm_list_find_str(pm_targets, "-")) {
 		if(!isatty(fileno(stdin))) {
+			int target_found = 0;
 			size_t current_size = PATH_MAX;
 			char *vdata, *line = malloc(current_size);
+			int c;
 
 			/* remove the '-' from the list */
 			pm_targets = alpm_list_remove_str(pm_targets, "-", &vdata);
 			free(vdata);
 
 			i = 0;
-			while((line[i] = (char)fgetc(stdin)) != EOF) {
-				if(isspace((unsigned char)line[i])) {
+			do {
+				c = fgetc(stdin);
+				if(c == EOF || isspace(c)) {
 					/* avoid adding zero length arg when multiple spaces separate args */
 					if(i > 0) {
 						line[i] = '\0';
 						pm_targets = alpm_list_add(pm_targets, strdup(line));
+						target_found = 1;
 						i = 0;
 					}
 				} else {
-					i++;
+					line[i++] = (char)c;
 					/* we may be at the end of our allocated buffer now */
 					if(i >= current_size) {
 						char *new = realloc(line, current_size * 2);
@@ -853,28 +1119,23 @@ int main(int argc, char *argv[])
 							current_size *= 2;
 						} else {
 							free(line);
-							line = NULL;
-							break;
+							pm_printf(ALPM_LOG_ERROR,
+									_("memory exhausted in argument parsing\n"));
+							cleanup(EXIT_FAILURE);
 						}
 					}
 				}
-			}
+			} while(c != EOF);
 
-			/* check for memory exhaustion */
-			if(!line) {
-				pm_printf(ALPM_LOG_ERROR, _("memory exhausted in argument parsing\n"));
-				cleanup(EXIT_FAILURE);
-			}
-
-			/* end of stream -- check for data still in line buffer */
-			if(i > 0) {
-				line[i] = '\0';
-				pm_targets = alpm_list_add(pm_targets, strdup(line));
-			}
 			free(line);
 			if(!freopen(ctermid(NULL), "r", stdin)) {
 				pm_printf(ALPM_LOG_ERROR, _("failed to reopen stdin for reading: (%s)\n"),
 						strerror(errno));
+			}
+
+			if(!target_found) {
+				pm_printf(ALPM_LOG_ERROR, _("argument '-' specified with empty stdin\n"));
+				cleanup(1);
 			}
 		} else {
 			/* do not read stdin from terminal */
@@ -962,4 +1223,4 @@ int main(int argc, char *argv[])
 	return EXIT_SUCCESS;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

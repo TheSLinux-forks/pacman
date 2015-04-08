@@ -1,7 +1,7 @@
 /*
  *  util.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -35,7 +35,6 @@
 #include <stdarg.h>
 #include <stddef.h> /* size_t */
 #include <sys/types.h>
-#include <sys/stat.h> /* struct stat */
 #include <math.h> /* fabs */
 #include <float.h> /* DBL_EPSILON */
 #include <fcntl.h> /* open, close */
@@ -47,7 +46,7 @@
 /* define _() as shortcut for gettext() */
 #define _(str) dgettext ("libalpm", str)
 #else
-#define _(s) s
+#define _(s) (char *)s
 #endif
 
 void _alpm_alloc_fail(size_t size);
@@ -88,7 +87,6 @@ void _alpm_alloc_fail(size_t size);
 #endif
 
 #define OPEN(fd, path, flags) do { fd = open(path, flags | O_BINARY); } while(fd == -1 && errno == EINTR)
-#define CLOSE(fd) do { int _ret; do { _ret = close(fd); } while(_ret == -1 && errno == EINTR); } while(0)
 
 /**
  * Used as a buffer/state holder for _alpm_archive_fgets().
@@ -129,7 +127,6 @@ int _alpm_ldconfig(alpm_handle_t *handle);
 int _alpm_str_cmp(const void *s1, const void *s2);
 char *_alpm_filecache_find(alpm_handle_t *handle, const char *filename);
 const char *_alpm_filecache_setup(alpm_handle_t *handle);
-int _alpm_lstat(const char *path, struct stat *buf);
 int _alpm_test_checksum(const char *filepath, const char *expected, alpm_pkgvalidation_t type);
 int _alpm_archive_fgets(struct archive *a, struct archive_read_buffer *b);
 int _alpm_splitname(const char *target, char **name, char **version,
@@ -140,7 +137,10 @@ alpm_time_t _alpm_parsedate(const char *line);
 int _alpm_raw_cmp(const char *first, const char *second);
 int _alpm_raw_ncmp(const char *first, const char *second, size_t max);
 int _alpm_access(alpm_handle_t *handle, const char *dir, const char *file, int amode);
+int _alpm_fnmatch_patterns(alpm_list_t *patterns, const char *string);
 int _alpm_fnmatch(const void *pattern, const void *string);
+void *_alpm_realloc(void **data, size_t *current, const size_t required);
+void *_alpm_greedy_grow(void **data, size_t *current, const size_t required);
 
 #ifndef HAVE_STRSEP
 char *strsep(char **, const char *);
@@ -154,4 +154,4 @@ char *strsep(char **, const char *);
 
 #endif /* _ALPM_UTIL_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

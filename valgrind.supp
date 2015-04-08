@@ -64,6 +64,13 @@
    fun:gpgme_get_engine_info
 }
 {
+   gpgme-static-get-key
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:gpgme_get_key
+}
+{
    gpgme-static-set-engine-info
    Memcheck:Leak
    fun:malloc
@@ -101,4 +108,62 @@
    obj:/lib/libc-2.14.so
    ...
    fun:regexec
+}
+{
+   fakeroot-msgsnd
+   Memcheck:Param
+   msgsnd(msgp->mtext)
+   fun:__msgsnd_nocancel
+}
+{
+   fakechroot-add-to-environ
+   Memcheck:Leak
+   fun:malloc
+   fun:__add_to_environ
+}
+{
+   fakechroot-static-fakechroot-init-malloc
+   Memcheck:Leak
+   fun:malloc
+   ...
+   fun:fakechroot_init
+}
+{
+   fakechroot-static-fakechroot-init-calloc
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:fakechroot_init
+}
+{
+   fakechroot-static-bindtextdomain
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   obj:/usr/lib/libfakeroot/fakechroot/libfakechroot.so
+   obj:/usr/lib/libfakeroot/fakechroot/libfakechroot.so
+   fun:bindtextdomain
+}
+{
+   fakechroot-uninitialized-var-lxstat
+   Memcheck:Cond
+   fun:__lxstat
+}
+{
+   bash-is-a-sieve
+   Memcheck:Leak
+   match-leak-kinds: reachable,definite,indirect
+   ...
+   obj:*/bash
+}
+{
+   fakechroot-call-init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   obj:/usr/lib/libfakeroot/fakechroot/libfakechroot.so
+   fun:call_init.part.0
+   fun:_dl_init
+   obj:/usr/lib/ld-*.so
+   ...
 }

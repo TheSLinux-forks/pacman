@@ -6,6 +6,7 @@
 ASCIIDOC_MANS = \
 	pacman.8 \
 	makepkg.8 \
+	makepkg-template.1 \
 	repo-add.8 \
 	vercmp.8 \
 	pkgdelta.8 \
@@ -21,6 +22,7 @@ DOXYGEN_MANS = $(wildcard man3/*.3)
 HTML_MANPAGES = \
 	pacman.8.html \
 	makepkg.8.html \
+	makepkg-template.1.html \
 	repo-add.8.html \
 	vercmp.8.html \
 	pkgdelta.8.html \
@@ -46,6 +48,7 @@ EXTRA_DIST = \
 	asciidoc-override.css \
 	pacman.8.txt \
 	makepkg.8.txt \
+	makepkg-template.1.txt \
 	repo-add.8.txt \
 	vercmp.8.txt \
 	pkgdelta.8.txt \
@@ -121,8 +124,7 @@ A2X_OPTS = \
 	--no-xmllint \
 	-d manpage \
 	-f manpage \
-	--xsltproc-opts='-param man.endnotes.list.enabled 0 -param man.endnotes.are.numbered 0' \
-	--destination-dir='./'
+	--xsltproc-opts='-param man.endnotes.list.enabled 0 -param man.endnotes.are.numbered 0'
 
 # These rules are due to the includes and files of the asciidoc text
 $(ASCIIDOC_MANS): asciidoc.conf footer.txt Makefile.am
@@ -147,6 +149,7 @@ $(HTML_OTHER): asciidoc.conf Makefile.am
 # Dependency rules
 pacman.8 pacman.8.html: pacman.8.txt
 makepkg.8 makepkg.8.html: makepkg.8.txt
+makepkg-template.1 makepkg-template.1.html: makepkg-template.1.txt
 repo-add.8 repo-add.8.html: repo-add.8.txt
 vercmp.8 vercmp.8.html: vercmp.8.txt
 pkgdelta.8 pkgdelta.8.html: pkgdelta.8.txt
@@ -171,4 +174,4 @@ install-data-hook:
 uninstall-hook:
 	$(RM) $(DESTDIR)$(mandir)/man8/repo-remove.8
 
-# vim:set ts=2 sw=2 noet:
+# vim:set noet:

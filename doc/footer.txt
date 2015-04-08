@@ -8,7 +8,7 @@ information on pacman and its related tools.
 
 Bugs
 ----
-Bugs? You must be kidding, there are no bugs in this software. But if we
+Bugs? You must be kidding; there are no bugs in this software. But if we
 happen to be wrong, send us an email with as much detail as possible to
 mailto:pacman-dev@archlinux.org[].
 
@@ -19,6 +19,7 @@ Authors
 Current maintainers:
 
 * Allan McRae <allan@archlinux.org>
+* Andrew Gregory <andrew.gregory.8@gmail.com>
 * Dan McGee <dan@archlinux.org>
 * Dave Reisner <dreisner@archlinux.org>
 

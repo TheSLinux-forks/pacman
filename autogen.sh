@@ -1,7 +1,6 @@
-#!/bin/sh -xu
+#!/bin/sh -x
 
-aclocal -I m4 --install
-autoheader
-automake --foreign
-automake --add-missing
-autoconf
+autoreconf -i
+patch -d build-aux -Np0 -i ltmain-asneeded.patch
+
+exit 0

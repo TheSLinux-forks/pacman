@@ -1,7 +1,5 @@
-#! /usr/bin/python2
-#
 #  Copyright (c) 2006 by Aurelien Foret <orelien@chez.com>
-#  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+#  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -20,6 +18,8 @@
 import os
 import re
 import hashlib
+
+import tap
 
 SELFPATH    = os.path.abspath(os.path.dirname(__file__))
 
@@ -43,7 +43,7 @@ verbose = 0
 
 def vprint(msg):
     if verbose:
-        print msg
+        tap.diag(msg)
 
 #
 # Methods to generate files
@@ -82,12 +82,12 @@ def mkfile(base, name, data=""):
     path = os.path.join(base, filename)
     if info["isdir"]:
         if not os.path.isdir(path):
-            os.makedirs(path, 0755)
+            os.makedirs(path, 0o755)
         return
 
     dir_path = os.path.dirname(path)
     if dir_path and not os.path.isdir(dir_path):
-        os.makedirs(dir_path, 0755)
+        os.makedirs(dir_path, 0o755)
 
     if info["islink"]:
         os.symlink(info["link"], path)
@@ -100,7 +100,7 @@ def mkfile(base, name, data=""):
 def writedata(filename, data):
     if isinstance(data, list):
         data = "\n".join(data)
-    fd = file(filename, "w")
+    fd = open(filename, "w")
     if data:
         fd.write(data)
         if data[-1] != "\n":
@@ -110,13 +110,13 @@ def writedata(filename, data):
 def mkcfgfile(filename, root, option, db):
     # Options
     data = ["[options]"]
-    for key, value in option.iteritems():
+    for key, value in option.items():
         data.extend(["%s = %s" % (key, j) for j in value])
 
     # Repositories
     # sort by repo name so tests can predict repo order, rather than be
     # subjects to the whims of python dict() ordering
-    for key in sorted(db.iterkeys()):
+    for key in sorted(db.keys()):
         if key != "local":
             value = db[key]
             data.append("[%s]\n" \
@@ -124,7 +124,7 @@ def mkcfgfile(filename, root, option, db):
                     "Server = file://%s" \
                      % (value.treename, value.getverify(), \
                         os.path.join(root, SYNCREPO, value.treename)))
-            for optkey, optval in value.option.iteritems():
+            for optkey, optval in value.option.items():
                 data.extend(["%s = %s" % (optkey, j) for j in optval])
 
     mkfile(root, filename, "\n".join(data))
@@ -157,8 +157,9 @@ def mkmd5sum(data):
 # Miscellaneous
 #
 
-def which(filename):
-    path = os.environ["PATH"].split(':')
+def which(filename, path=None):
+    if not path:
+        path = os.environ["PATH"].split(os.pathsep)
     for p in path:
         f = os.path.join(p, filename)
         if os.access(f, os.F_OK):
@@ -180,6 +181,6 @@ def mkdir(path):
         return
     elif os.path.isfile(path):
         raise OSError("'%s' already exists and is not a directory" % path)
-    os.makedirs(path, 0755)
+    os.makedirs(path, 0o755)
 
 # vim: set ts=4 sw=4 et:

@@ -1,7 +1,7 @@
 /*
  *  delta.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2007-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,4 +32,4 @@ off_t _alpm_shortest_delta_path(alpm_handle_t *handle, alpm_list_t *deltas,
 
 #endif /* _ALPM_DELTA_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

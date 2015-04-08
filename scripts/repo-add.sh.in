@@ -4,7 +4,7 @@
 #   repo-remove - remove a package entry from a given repo database file
 #   @configure_input@
 #
-#   Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+#   Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@ declare -r confdir='@sysconfdir@'
 QUIET=0
 DELTA=0
 ONLYADDNEW=0
+RMEXISTING=0
 WITHFILES=0
 SIGN=0
 VERIFY=0
@@ -58,6 +59,7 @@ Multiple packages to add can be specified on the command line.\n")"
 		printf -- "$(gettext "Options:\n")"
 		printf -- "$(gettext "  -d, --delta       generate and add delta for package update\n")"
 		printf -- "$(gettext "  -n, --new         only add packages that are not already in the database\n")"
+		printf -- "$(gettext "  -R, --remove      remove package file from disk when updating database entry\n")"
 		printf -- "$(gettext "  -f, --files       update database's file list\n")"
 	elif [[ $cmd == "repo-remove" ]] ; then
 		printf -- "$(gettext "Usage: repo-remove [options] <path-to-db> <packagename|delta> ...\n")"
@@ -91,7 +93,7 @@ version() {
 	cmd=${0##*/}
 	printf "%s (pacman) %s\n\n" "$cmd" "$myver"
 	printf -- "$(gettext "\
-Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>\n\n\
+Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>\n\n\
 This is free software; see the source for copying conditions.\n\
 There is NO WARRANTY, to the extent permitted by law.\n")"
 }
@@ -262,7 +264,7 @@ db_write_entry() {
 	local pkgfile=$1
 	local -a _groups _licenses _replaces _depends _conflicts _provides \
 		_optdepends _makedepends _checkdepends
-	local pkgname pkgver pkgdesc csize size url arch builddate packager \
+	local pkgname pkgbase pkgver pkgdesc csize size url arch builddate packager \
 		md5sum sha256sum pgpsig pgpsigsize
 
 	# read info from the zipped package
@@ -303,6 +305,15 @@ db_write_entry() {
 			if [[ -n $pkgentry ]]; then
 				local oldfilename=$(grep -A1 FILENAME "$pkgentry/desc" | tail -n1)
 				local oldfile="$(dirname "$1")/$oldfilename"
+			fi
+		elif (( RMEXISTING )); then
+			# only remove existing package if we're not doing deltas
+			pkgentry=$(find_pkgentry "$pkgname")
+			if [[ -n $pkgentry ]]; then
+				local oldfilename="$(sed -n '/^%FILENAME%$/ {n;p;q;}' "$pkgentry/desc")"
+				local oldfile="$(dirname "$1")/$oldfilename"
+				msg2 "$(gettext "Removing existing package '%s'")" "$oldfilename"
+				rm -f ${oldfile} ${oldfile}.sig
 			fi
 		fi
 	fi
@@ -611,6 +622,7 @@ while (( $# )); do
 		-q|--quiet) QUIET=1;;
 		-d|--delta) DELTA=1;;
 		-n|--new) ONLYADDNEW=1;;
+		-R|--remove) RMEXISTING=1;;
 		-f|--files) WITHFILES=1;;
 		--nocolor) USE_COLOR='n';;
 		-s|--sign)
@@ -727,4 +739,4 @@ else
 fi
 
 exit 0
-# vim: set ts=2 sw=2 noet:
+# vim: set noet:

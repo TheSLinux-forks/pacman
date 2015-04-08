@@ -1,7 +1,7 @@
 /*
  * alpm.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -41,6 +41,93 @@ extern "C" {
  * Arch Linux Package Management library
  */
 
+/*
+ * Opaque Structures
+ */
+typedef struct __alpm_handle_t alpm_handle_t;
+typedef struct __alpm_db_t alpm_db_t;
+typedef struct __alpm_pkg_t alpm_pkg_t;
+typedef struct __alpm_trans_t alpm_trans_t;
+
+/** @addtogroup alpm_api_errors Error Codes
+ * @{
+ */
+typedef enum _alpm_errno_t {
+	ALPM_ERR_MEMORY = 1,
+	ALPM_ERR_SYSTEM,
+	ALPM_ERR_BADPERMS,
+	ALPM_ERR_NOT_A_FILE,
+	ALPM_ERR_NOT_A_DIR,
+	ALPM_ERR_WRONG_ARGS,
+	ALPM_ERR_DISK_SPACE,
+	/* Interface */
+	ALPM_ERR_HANDLE_NULL,
+	ALPM_ERR_HANDLE_NOT_NULL,
+	ALPM_ERR_HANDLE_LOCK,
+	/* Databases */
+	ALPM_ERR_DB_OPEN,
+	ALPM_ERR_DB_CREATE,
+	ALPM_ERR_DB_NULL,
+	ALPM_ERR_DB_NOT_NULL,
+	ALPM_ERR_DB_NOT_FOUND,
+	ALPM_ERR_DB_INVALID,
+	ALPM_ERR_DB_INVALID_SIG,
+	ALPM_ERR_DB_VERSION,
+	ALPM_ERR_DB_WRITE,
+	ALPM_ERR_DB_REMOVE,
+	/* Servers */
+	ALPM_ERR_SERVER_BAD_URL,
+	ALPM_ERR_SERVER_NONE,
+	/* Transactions */
+	ALPM_ERR_TRANS_NOT_NULL,
+	ALPM_ERR_TRANS_NULL,
+	ALPM_ERR_TRANS_DUP_TARGET,
+	ALPM_ERR_TRANS_NOT_INITIALIZED,
+	ALPM_ERR_TRANS_NOT_PREPARED,
+	ALPM_ERR_TRANS_ABORT,
+	ALPM_ERR_TRANS_TYPE,
+	ALPM_ERR_TRANS_NOT_LOCKED,
+	/* Packages */
+	ALPM_ERR_PKG_NOT_FOUND,
+	ALPM_ERR_PKG_IGNORED,
+	ALPM_ERR_PKG_INVALID,
+	ALPM_ERR_PKG_INVALID_CHECKSUM,
+	ALPM_ERR_PKG_INVALID_SIG,
+	ALPM_ERR_PKG_MISSING_SIG,
+	ALPM_ERR_PKG_OPEN,
+	ALPM_ERR_PKG_CANT_REMOVE,
+	ALPM_ERR_PKG_INVALID_NAME,
+	ALPM_ERR_PKG_INVALID_ARCH,
+	ALPM_ERR_PKG_REPO_NOT_FOUND,
+	/* Signatures */
+	ALPM_ERR_SIG_MISSING,
+	ALPM_ERR_SIG_INVALID,
+	/* Deltas */
+	ALPM_ERR_DLT_INVALID,
+	ALPM_ERR_DLT_PATCHFAILED,
+	/* Dependencies */
+	ALPM_ERR_UNSATISFIED_DEPS,
+	ALPM_ERR_CONFLICTING_DEPS,
+	ALPM_ERR_FILE_CONFLICTS,
+	/* Misc */
+	ALPM_ERR_RETRIEVE,
+	ALPM_ERR_INVALID_REGEX,
+	/* External library errors */
+	ALPM_ERR_LIBARCHIVE,
+	ALPM_ERR_LIBCURL,
+	ALPM_ERR_EXTERNAL_DOWNLOAD,
+	ALPM_ERR_GPGME
+} alpm_errno_t;
+
+/** Returns the current error code from the handle. */
+alpm_errno_t alpm_errno(alpm_handle_t *handle);
+
+/** Returns the string corresponding to an error number. */
+const char *alpm_strerror(alpm_errno_t err);
+
+/* End of alpm_api_errors */
+/** @} */
+
 /** @addtogroup alpm_api Public API
  * The libalpm Public API
  * @{
@@ -79,17 +166,17 @@ typedef enum _alpm_pkgvalidation_t {
 
 /** Types of version constraints in dependency specs. */
 typedef enum _alpm_depmod_t {
-  /** No version constraint */
+	/** No version constraint */
 	ALPM_DEP_MOD_ANY = 1,
-  /** Test version equality (package=x.y.z) */
+	/** Test version equality (package=x.y.z) */
 	ALPM_DEP_MOD_EQ,
-  /** Test for at least a version (package>=x.y.z) */
+	/** Test for at least a version (package>=x.y.z) */
 	ALPM_DEP_MOD_GE,
-  /** Test for at most a version (package<=x.y.z) */
+	/** Test for at most a version (package<=x.y.z) */
 	ALPM_DEP_MOD_LE,
-  /** Test for greater than some version (package>x.y.z) */
+	/** Test for greater than some version (package>x.y.z) */
 	ALPM_DEP_MOD_GT,
-  /** Test for less than some version (package<x.y.z) */
+	/** Test for less than some version (package<x.y.z) */
 	ALPM_DEP_MOD_LT
 } alpm_depmod_t;
 
@@ -142,11 +229,6 @@ typedef enum _alpm_sigvalidity_t {
 /*
  * Structures
  */
-
-typedef struct __alpm_handle_t alpm_handle_t;
-typedef struct __alpm_db_t alpm_db_t;
-typedef struct __alpm_pkg_t alpm_pkg_t;
-typedef struct __alpm_trans_t alpm_trans_t;
 
 /** Dependency */
 typedef struct _alpm_depend_t {
@@ -217,7 +299,6 @@ typedef struct _alpm_file_t {
 typedef struct _alpm_filelist_t {
 	size_t count;
 	alpm_file_t *files;
-	char **resolved_path;
 } alpm_filelist_t;
 
 /** Local package or package file backup entry */
@@ -251,7 +332,7 @@ typedef struct _alpm_sigresult_t {
 
 /**
  * Signature list. Contains the number of signatures found and a pointer to an
- * array of results.  The array is of size count.
+ * array of results. The array is of size count.
  */
 typedef struct _alpm_siglist_t {
 	size_t count;
@@ -276,10 +357,9 @@ int alpm_logaction(alpm_handle_t *handle, const char *prefix,
 		const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 
 /**
- * Events.
- * NULL parameters are passed to in all events unless specified otherwise.
+ * Type of events.
  */
-typedef enum _alpm_event_t {
+typedef enum _alpm_event_type_t {
 	/** Dependencies will be computed for a package. */
 	ALPM_EVENT_CHECKDEPS_START = 1,
 	/** Dependencies were computed for a package. */
@@ -296,49 +376,12 @@ typedef enum _alpm_event_t {
 	ALPM_EVENT_INTERCONFLICTS_START,
 	/** Inter-conflicts were checked for target package. */
 	ALPM_EVENT_INTERCONFLICTS_DONE,
-	/** Package will be installed.
-	 * A pointer to the target package is passed to the callback.
-	 */
-	ALPM_EVENT_ADD_START,
-	/** Package was installed.
-	 * A pointer to the new package is passed to the callback.
-	 */
-	ALPM_EVENT_ADD_DONE,
-	/** Package will be removed.
-	 * A pointer to the target package is passed to the callback.
-	 */
-	ALPM_EVENT_REMOVE_START,
-	/** Package was removed.
-	 * A pointer to the removed package is passed to the callback.
-	 */
-	ALPM_EVENT_REMOVE_DONE,
-	/** Package will be upgraded.
-	 * A pointer to the upgraded package is passed to the callback.
-	 */
-	ALPM_EVENT_UPGRADE_START,
-	/** Package was upgraded.
-	 * A pointer to the new package, and a pointer to the old package is passed
-	 * to the callback, respectively.
-	 */
-	ALPM_EVENT_UPGRADE_DONE,
-	/** Package will be downgraded.
-	 * A pointer to the downgraded package is passed to the callback.
-	 */
-	ALPM_EVENT_DOWNGRADE_START,
-	/** Package was downgraded.
-	 * A pointer to the new package, and a pointer to the old package is passed
-	 * to the callback, respectively.
-	 */
-	ALPM_EVENT_DOWNGRADE_DONE,
-	/** Package will be reinstalled.
-	 * A pointer to the reinstalled package is passed to the callback.
-	 */
-	ALPM_EVENT_REINSTALL_START,
-	/** Package was reinstalled.
-	 * A pointer to the new package, and a pointer to the old package is passed
-	 * to the callback, respectively.
-	 */
-	ALPM_EVENT_REINSTALL_DONE,
+	/** Package will be installed/upgraded/downgraded/re-installed/removed; See
+	 * alpm_event_package_operation_t for arguments. */
+	ALPM_EVENT_PACKAGE_OPERATION_START,
+	/** Package was installed/upgraded/downgraded/re-installed/removed; See
+	 * alpm_event_package_operation_t for arguments. */
+	ALPM_EVENT_PACKAGE_OPERATION_DONE,
 	/** Target package's integrity will be checked. */
 	ALPM_EVENT_INTEGRITY_START,
 	/** Target package's integrity was checked. */
@@ -355,31 +398,40 @@ typedef enum _alpm_event_t {
 	ALPM_EVENT_DELTA_PATCHES_START,
 	/** Deltas were applied to packages. */
 	ALPM_EVENT_DELTA_PATCHES_DONE,
-	/** Delta patch will be applied to target package.
-	 * The filename of the package and the filename of the patch is passed to the
-	 * callback.
-	 */
+	/** Delta patch will be applied to target package; See
+	 * alpm_event_delta_patch_t for arguments.. */
 	ALPM_EVENT_DELTA_PATCH_START,
 	/** Delta patch was applied to target package. */
 	ALPM_EVENT_DELTA_PATCH_DONE,
 	/** Delta patch failed to apply to target package. */
 	ALPM_EVENT_DELTA_PATCH_FAILED,
-	/** Scriptlet has printed information.
-	 * A line of text is passed to the callback.
-	 */
+	/** Scriptlet has printed information; See alpm_event_scriptlet_info_t for
+	 * arguments. */
 	ALPM_EVENT_SCRIPTLET_INFO,
-	/** Files will be downloaded from a repository.
-	 * The repository's tree name is passed to the callback.
-	 */
+	/** Files will be downloaded from a repository. */
 	ALPM_EVENT_RETRIEVE_START,
-	/** Disk space usage will be computed for a package */
+	/** Files were downloaded from a repository. */
+	ALPM_EVENT_RETRIEVE_DONE,
+	/** Not all files were successfully downloaded from a repository. */
+	ALPM_EVENT_RETRIEVE_FAILED,
+	/** A file will be downloaded from a repository; See alpm_event_pkgdownload_t
+	 * for arguments */
+	ALPM_EVENT_PKGDOWNLOAD_START,
+	/** A file was downloaded from a repository; See alpm_event_pkgdownload_t
+	 * for arguments */
+	ALPM_EVENT_PKGDOWNLOAD_DONE,
+	/** A file failed to be downloaded from a repository; See
+	 * alpm_event_pkgdownload_t for arguments */
+	ALPM_EVENT_PKGDOWNLOAD_FAILED,
+	/** Disk space usage will be computed for a package. */
 	ALPM_EVENT_DISKSPACE_START,
-	/** Disk space usage was computed for a package */
+	/** Disk space usage was computed for a package. */
 	ALPM_EVENT_DISKSPACE_DONE,
-	/** An optdepend for another package is being removed
-	 * The requiring package and its dependency are passed to the callback */
-	ALPM_EVENT_OPTDEP_REQUIRED,
-	/** A configured repository database is missing */
+	/** An optdepend for another package is being removed; See
+	 * alpm_event_optdep_removal_t for arguments. */
+	ALPM_EVENT_OPTDEP_REMOVAL,
+	/** A configured repository database is missing; See
+	 * alpm_event_database_missing_t for arguments. */
 	ALPM_EVENT_DATABASE_MISSING,
 	/** Checking keys used to create signatures are in keyring. */
 	ALPM_EVENT_KEYRING_START,
@@ -388,31 +440,250 @@ typedef enum _alpm_event_t {
 	/** Downloading missing keys into keyring. */
 	ALPM_EVENT_KEY_DOWNLOAD_START,
 	/** Key downloading is finished. */
-	ALPM_EVENT_KEY_DOWNLOAD_DONE
+	ALPM_EVENT_KEY_DOWNLOAD_DONE,
+	/** A .pacnew file was created; See alpm_event_pacnew_created_t for arguments. */
+	ALPM_EVENT_PACNEW_CREATED,
+	/** A .pacsave file was created; See alpm_event_pacsave_created_t for
+	 * arguments */
+	ALPM_EVENT_PACSAVE_CREATED,
+	/** A .pacorig file was created; See alpm_event_pacorig_created_t for
+	 * arguments */
+	ALPM_EVENT_PACORIG_CREATED
+} alpm_event_type_t;
+
+typedef struct _alpm_event_any_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+} alpm_event_any_t;
+
+typedef enum _alpm_package_operation_t {
+	/** Package (to be) installed. (No oldpkg) */
+	ALPM_PACKAGE_INSTALL = 1,
+	/** Package (to be) upgraded */
+	ALPM_PACKAGE_UPGRADE,
+	/** Package (to be) re-installed. */
+	ALPM_PACKAGE_REINSTALL,
+	/** Package (to be) downgraded. */
+	ALPM_PACKAGE_DOWNGRADE,
+	/** Package (to be) removed. (No newpkg) */
+	ALPM_PACKAGE_REMOVE
+} alpm_package_operation_t;
+
+typedef struct _alpm_event_package_operation_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Type of operation. */
+	alpm_package_operation_t operation;
+	/** Old package. */
+	alpm_pkg_t *oldpkg;
+	/** New package. */
+	alpm_pkg_t *newpkg;
+} alpm_event_package_operation_t;
+
+typedef struct _alpm_event_optdep_removal_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Package with the optdep. */
+	alpm_pkg_t *pkg;
+	/** Optdep being removed. */
+	alpm_depend_t *optdep;
+} alpm_event_optdep_removal_t;
+
+typedef struct _alpm_event_delta_patch_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Delta info */
+	alpm_delta_t *delta;
+} alpm_event_delta_patch_t;
+
+typedef struct _alpm_event_scriptlet_info_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Line of scriptlet output. */
+	const char *line;
+} alpm_event_scriptlet_info_t;
+
+typedef struct _alpm_event_database_missing_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Name of the database. */
+	const char *dbname;
+} alpm_event_database_missing_t;
+
+typedef struct _alpm_event_pkgdownload_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Name of the file */
+	const char *file;
+} alpm_event_pkgdownload_t;
+
+typedef struct _alpm_event_pacnew_created_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Whether the creation was result of a NoUpgrade or not */
+	int from_noupgrade;
+	/** Old package. */
+	alpm_pkg_t *oldpkg;
+	/** New Package. */
+	alpm_pkg_t *newpkg;
+	/** Filename of the file without the .pacnew suffix */
+	const char *file;
+} alpm_event_pacnew_created_t;
+
+typedef struct _alpm_event_pacsave_created_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** Old package. */
+	alpm_pkg_t *oldpkg;
+	/** Filename of the file without the .pacsave suffix. */
+	const char *file;
+} alpm_event_pacsave_created_t;
+
+typedef struct _alpm_event_pacorig_created_t {
+	/** Type of event. */
+	alpm_event_type_t type;
+	/** New package. */
+	alpm_pkg_t *newpkg;
+	/** Filename of the file without the .pacorig suffix. */
+	const char *file;
+} alpm_event_pacorig_created_t;
+
+/** Events.
+ * This is an union passed to the callback, that allows the frontend to know
+ * which type of event was triggered (via type). It is then possible to
+ * typecast the pointer to the right structure, or use the union field, in order
+ * to access event-specific data. */
+typedef union _alpm_event_t {
+	alpm_event_type_t type;
+	alpm_event_any_t any;
+	alpm_event_package_operation_t package_operation;
+	alpm_event_optdep_removal_t optdep_removal;
+	alpm_event_delta_patch_t delta_patch;
+	alpm_event_scriptlet_info_t scriptlet_info;
+	alpm_event_database_missing_t database_missing;
+	alpm_event_pkgdownload_t pkgdownload;
+	alpm_event_pacnew_created_t pacnew_created;
+	alpm_event_pacsave_created_t pacsave_created;
+	alpm_event_pacorig_created_t pacorig_created;
 } alpm_event_t;
 
-/** Event callback */
-typedef void (*alpm_cb_event)(alpm_event_t, void *, void *);
+/** Event callback. */
+typedef void (*alpm_cb_event)(alpm_event_t *);
 
 /**
- * Questions.
+ * Type of questions.
  * Unlike the events or progress enumerations, this enum has bitmask values
  * so a frontend can use a bitmask map to supply preselected answers to the
  * different types of questions.
  */
-typedef enum _alpm_question_t {
-	ALPM_QUESTION_INSTALL_IGNOREPKG = 1,
+typedef enum _alpm_question_type_t {
+	ALPM_QUESTION_INSTALL_IGNOREPKG = (1 << 0),
 	ALPM_QUESTION_REPLACE_PKG = (1 << 1),
 	ALPM_QUESTION_CONFLICT_PKG = (1 << 2),
 	ALPM_QUESTION_CORRUPTED_PKG = (1 << 3),
-	ALPM_QUESTION_LOCAL_NEWER = (1 << 4),
-	ALPM_QUESTION_REMOVE_PKGS = (1 << 5),
-	ALPM_QUESTION_SELECT_PROVIDER = (1 << 6),
-	ALPM_QUESTION_IMPORT_KEY = (1 << 7)
+	ALPM_QUESTION_REMOVE_PKGS = (1 << 4),
+	ALPM_QUESTION_SELECT_PROVIDER = (1 << 5),
+	ALPM_QUESTION_IMPORT_KEY = (1 << 6)
+} alpm_question_type_t;
+
+typedef struct _alpm_question_any_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer. */
+	int answer;
+} alpm_question_any_t;
+
+typedef struct _alpm_question_install_ignorepkg_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer: whether or not to install pkg anyway. */
+	int install;
+	/* Package in IgnorePkg/IgnoreGroup. */
+	alpm_pkg_t *pkg;
+} alpm_question_install_ignorepkg_t;
+
+typedef struct _alpm_question_replace_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer: whether or not to replace oldpkg with newpkg. */
+	int replace;
+	/* Package to be replaced. */
+	alpm_pkg_t *oldpkg;
+	/* Package to replace with. */
+	alpm_pkg_t *newpkg;
+	/* DB of newpkg */
+	alpm_db_t *newdb;
+} alpm_question_replace_t;
+
+typedef struct _alpm_question_conflict_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer: whether or not to remove conflict->package2. */
+	int remove;
+	/** Conflict info. */
+	alpm_conflict_t *conflict;
+} alpm_question_conflict_t;
+
+typedef struct _alpm_question_corrupted_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer: whether or not to remove filepath. */
+	int remove;
+	/** Filename to remove */
+	const char *filepath;
+	/** Error code indicating the reason for package invalidity */
+	alpm_errno_t reason;
+} alpm_question_corrupted_t;
+
+typedef struct _alpm_question_remove_pkgs_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer: whether or not to skip packages. */
+	int skip;
+	/** List of alpm_pkg_t* with unresolved dependencies. */
+	alpm_list_t *packages;
+} alpm_question_remove_pkgs_t;
+
+typedef struct _alpm_question_select_provider_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer: which provider to use (index from providers). */
+	int use_index;
+	/** List of alpm_pkg_t* as possible providers. */
+	alpm_list_t *providers;
+	/** What providers provide for. */
+	alpm_depend_t *depend;
+} alpm_question_select_provider_t;
+
+typedef struct _alpm_question_import_key_t {
+	/** Type of question. */
+	alpm_question_type_t type;
+	/** Answer: whether or not to import key. */
+	int import;
+	/** The key to import. */
+	alpm_pgpkey_t *key;
+} alpm_question_import_key_t;
+
+/**
+ * Questions.
+ * This is an union passed to the callback, that allows the frontend to know
+ * which type of question was triggered (via type). It is then possible to
+ * typecast the pointer to the right structure, or use the union field, in order
+ * to access question-specific data. */
+typedef union _alpm_question_t {
+	alpm_question_type_t type;
+	alpm_question_any_t any;
+	alpm_question_install_ignorepkg_t install_ignorepkg;
+	alpm_question_replace_t replace;
+	alpm_question_conflict_t conflict;
+	alpm_question_corrupted_t corrupted;
+	alpm_question_remove_pkgs_t remove_pkgs;
+	alpm_question_select_provider_t select_provider;
+	alpm_question_import_key_t import_key;
 } alpm_question_t;
 
 /** Question callback */
-typedef void (*alpm_cb_question)(alpm_question_t, void *, void *, void *, int *);
+typedef void (*alpm_cb_question)(alpm_question_t *);
 
 /** Progress */
 typedef enum _alpm_progress_t {
@@ -541,9 +812,10 @@ int alpm_option_set_usesyslog(alpm_handle_t *handle, int usesyslog);
  * @{
  */
 alpm_list_t *alpm_option_get_noupgrades(alpm_handle_t *handle);
-int alpm_option_add_noupgrade(alpm_handle_t *handle, const char *pkg);
+int alpm_option_add_noupgrade(alpm_handle_t *handle, const char *path);
 int alpm_option_set_noupgrades(alpm_handle_t *handle, alpm_list_t *noupgrade);
-int alpm_option_remove_noupgrade(alpm_handle_t *handle, const char *pkg);
+int alpm_option_remove_noupgrade(alpm_handle_t *handle, const char *path);
+int alpm_option_match_noupgrade(alpm_handle_t *handle, const char *path);
 /** @} */
 
 /** @name Accessors to the list of no-extract files.
@@ -553,9 +825,10 @@ int alpm_option_remove_noupgrade(alpm_handle_t *handle, const char *pkg);
  * @{
  */
 alpm_list_t *alpm_option_get_noextracts(alpm_handle_t *handle);
-int alpm_option_add_noextract(alpm_handle_t *handle, const char *pkg);
+int alpm_option_add_noextract(alpm_handle_t *handle, const char *path);
 int alpm_option_set_noextracts(alpm_handle_t *handle, alpm_list_t *noextract);
-int alpm_option_remove_noextract(alpm_handle_t *handle, const char *pkg);
+int alpm_option_remove_noextract(alpm_handle_t *handle, const char *path);
+int alpm_option_match_noextract(alpm_handle_t *handle, const char *path);
 /** @} */
 
 /** @name Accessors to the list of ignored packages.
@@ -578,6 +851,17 @@ alpm_list_t *alpm_option_get_ignoregroups(alpm_handle_t *handle);
 int alpm_option_add_ignoregroup(alpm_handle_t *handle, const char *grp);
 int alpm_option_set_ignoregroups(alpm_handle_t *handle, alpm_list_t *ignoregrps);
 int alpm_option_remove_ignoregroup(alpm_handle_t *handle, const char *grp);
+/** @} */
+
+/** @name Accessors to the list of ignored dependencies.
+ * These functions modify the list of dependencies that
+ * should be ignored by a sysupgrade.
+ * @{
+ */
+alpm_list_t *alpm_option_get_assumeinstalled(alpm_handle_t *handle);
+int alpm_option_add_assumeinstalled(alpm_handle_t *handle, const alpm_depend_t *dep);
+int alpm_option_set_assumeinstalled(alpm_handle_t *handle, alpm_list_t *deps);
+int alpm_option_remove_assumeinstalled(alpm_handle_t *handle, const alpm_depend_t *dep);
 /** @} */
 
 /** Returns the targeted architecture. */
@@ -711,6 +995,28 @@ alpm_list_t *alpm_db_get_groupcache(alpm_db_t *db);
  */
 alpm_list_t *alpm_db_search(alpm_db_t *db, const alpm_list_t *needles);
 
+typedef enum _alpm_db_usage_ {
+	ALPM_DB_USAGE_SYNC = 1,
+	ALPM_DB_USAGE_SEARCH = (1 << 1),
+	ALPM_DB_USAGE_INSTALL = (1 << 2),
+	ALPM_DB_USAGE_UPGRADE = (1 << 3),
+	ALPM_DB_USAGE_ALL = (1 << 4) - 1,
+} alpm_db_usage_t;
+
+/** Sets the usage of a database.
+ * @param db pointer to the package database to set the status for
+ * @param usage a bitmask of alpm_db_usage_t values
+ * @return 0 on success, or -1 on error
+ */
+int alpm_db_set_usage(alpm_db_t *db, alpm_db_usage_t usage);
+
+/** Gets the usage of a database.
+ * @param db pointer to the package database to get the status of
+ * @param usage pointer to an alpm_db_usage_t to store db's status
+ * @return 0 on success, or -1 on error
+ */
+int alpm_db_get_usage(alpm_db_t *db, alpm_db_usage_t *usage);
+
 /** @} */
 
 /** @addtogroup alpm_api_packages Package Functions
@@ -772,6 +1078,15 @@ alpm_list_t *alpm_pkg_compute_requiredby(alpm_pkg_t *pkg);
  * @return the list of packages optionally requiring pkg
  */
 alpm_list_t *alpm_pkg_compute_optionalfor(alpm_pkg_t *pkg);
+
+/** Test if a package should be ignored.
+ * Checks if the package is ignored via IgnorePkg, or if the package is
+ * in a group ignored via IgnoreGroup.
+ * @param handle the context handle
+ * @param pkg the package to test
+ * @return 1 if the package should be ignored, 0 otherwise
+ */
+int alpm_pkg_should_ignore(alpm_handle_t *handle, alpm_pkg_t *pkg);
 
 /** @name Package Property Accessors
  * Any pointer returned by these functions points to internal structures
@@ -932,9 +1247,6 @@ alpm_list_t *alpm_pkg_get_replaces(alpm_pkg_t *pkg);
 alpm_filelist_t *alpm_pkg_get_files(alpm_pkg_t *pkg);
 
 /** Returns the list of files backed up when installing pkg.
- * The elements of the returned list have the form
- * "<filename>\t<md5sum>", where the given md5sum is that of
- * the file as provided by the package.
  * @param pkg a pointer to package
  * @return a reference to a list of alpm_backup_t objects
  */
@@ -1043,7 +1355,7 @@ int alpm_pkg_set_reason(alpm_pkg_t *pkg, alpm_pkgreason_t reason);
  * @param path the path to search for in the package
  * @return a pointer to the matching file or NULL if not found
  */
-char *alpm_filelist_contains(alpm_filelist_t *filelist, const char *path);
+alpm_file_t *alpm_filelist_contains(alpm_filelist_t *filelist, const char *path);
 
 /*
  * Signatures
@@ -1054,6 +1366,12 @@ int alpm_pkg_check_pgp_signature(alpm_pkg_t *pkg, alpm_siglist_t *siglist);
 int alpm_db_check_pgp_signature(alpm_db_t *db, alpm_siglist_t *siglist);
 
 int alpm_siglist_cleanup(alpm_siglist_t *siglist);
+
+int alpm_decode_signature(const char *base64_data,
+		unsigned char **data, size_t *data_len);
+
+int alpm_extract_keyid(alpm_handle_t *handle, const char *identifier,
+		const unsigned char *sig, const size_t len, alpm_list_t **keys);
 
 /*
  * Groups
@@ -1212,6 +1530,17 @@ alpm_list_t *alpm_checkconflicts(alpm_handle_t *handle, alpm_list_t *pkglist);
  */
 char *alpm_dep_compute_string(const alpm_depend_t *dep);
 
+/** Return a newly allocated dependency information parsed from a string
+ * @param depstring a formatted string, e.g. "glibc=2.12"
+ * @return a dependency info structure
+ */
+alpm_depend_t *alpm_dep_from_string(const char *depstring);
+
+/** Free a dependency info structure
+ * @param dep struct to free
+ */
+void alpm_dep_free(alpm_depend_t *dep);
+
 /** @} */
 
 /** @} */
@@ -1223,84 +1552,6 @@ char *alpm_dep_compute_string(const alpm_depend_t *dep);
 /* checksums */
 char *alpm_compute_md5sum(const char *filename);
 char *alpm_compute_sha256sum(const char *filename);
-
-/** @addtogroup alpm_api_errors Error Codes
- * @{
- */
-typedef enum _alpm_errno_t {
-	ALPM_ERR_MEMORY = 1,
-	ALPM_ERR_SYSTEM,
-	ALPM_ERR_BADPERMS,
-	ALPM_ERR_NOT_A_FILE,
-	ALPM_ERR_NOT_A_DIR,
-	ALPM_ERR_WRONG_ARGS,
-	ALPM_ERR_DISK_SPACE,
-	/* Interface */
-	ALPM_ERR_HANDLE_NULL,
-	ALPM_ERR_HANDLE_NOT_NULL,
-	ALPM_ERR_HANDLE_LOCK,
-	/* Databases */
-	ALPM_ERR_DB_OPEN,
-	ALPM_ERR_DB_CREATE,
-	ALPM_ERR_DB_NULL,
-	ALPM_ERR_DB_NOT_NULL,
-	ALPM_ERR_DB_NOT_FOUND,
-	ALPM_ERR_DB_INVALID,
-	ALPM_ERR_DB_INVALID_SIG,
-	ALPM_ERR_DB_VERSION,
-	ALPM_ERR_DB_WRITE,
-	ALPM_ERR_DB_REMOVE,
-	/* Servers */
-	ALPM_ERR_SERVER_BAD_URL,
-	ALPM_ERR_SERVER_NONE,
-	/* Transactions */
-	ALPM_ERR_TRANS_NOT_NULL,
-	ALPM_ERR_TRANS_NULL,
-	ALPM_ERR_TRANS_DUP_TARGET,
-	ALPM_ERR_TRANS_NOT_INITIALIZED,
-	ALPM_ERR_TRANS_NOT_PREPARED,
-	ALPM_ERR_TRANS_ABORT,
-	ALPM_ERR_TRANS_TYPE,
-	ALPM_ERR_TRANS_NOT_LOCKED,
-	/* Packages */
-	ALPM_ERR_PKG_NOT_FOUND,
-	ALPM_ERR_PKG_IGNORED,
-	ALPM_ERR_PKG_INVALID,
-	ALPM_ERR_PKG_INVALID_CHECKSUM,
-	ALPM_ERR_PKG_INVALID_SIG,
-	ALPM_ERR_PKG_OPEN,
-	ALPM_ERR_PKG_CANT_REMOVE,
-	ALPM_ERR_PKG_INVALID_NAME,
-	ALPM_ERR_PKG_INVALID_ARCH,
-	ALPM_ERR_PKG_REPO_NOT_FOUND,
-	/* Signatures */
-	ALPM_ERR_SIG_MISSING,
-	ALPM_ERR_SIG_INVALID,
-	/* Deltas */
-	ALPM_ERR_DLT_INVALID,
-	ALPM_ERR_DLT_PATCHFAILED,
-	/* Dependencies */
-	ALPM_ERR_UNSATISFIED_DEPS,
-	ALPM_ERR_CONFLICTING_DEPS,
-	ALPM_ERR_FILE_CONFLICTS,
-	/* Misc */
-	ALPM_ERR_RETRIEVE,
-	ALPM_ERR_INVALID_REGEX,
-	/* External library errors */
-	ALPM_ERR_LIBARCHIVE,
-	ALPM_ERR_LIBCURL,
-	ALPM_ERR_EXTERNAL_DOWNLOAD,
-	ALPM_ERR_GPGME
-} alpm_errno_t;
-
-/** Returns the current error code from the handle. */
-alpm_errno_t alpm_errno(alpm_handle_t *handle);
-
-/** Returns the string corresponding to an error number. */
-const char *alpm_strerror(alpm_errno_t err);
-
-/* End of alpm_api_errors */
-/** @} */
 
 alpm_handle_t *alpm_initialize(const char *root, const char *dbpath,
 		alpm_errno_t *err);
@@ -1315,6 +1566,10 @@ enum alpm_caps {
 const char *alpm_version(void);
 enum alpm_caps alpm_capabilities(void);
 
+void alpm_fileconflict_free(alpm_fileconflict_t *conflict);
+void alpm_depmissing_free(alpm_depmissing_t *miss);
+void alpm_conflict_free(alpm_conflict_t *conflict);
+
 /* End of alpm_api */
 /** @} */
 
@@ -1323,4 +1578,4 @@ enum alpm_caps alpm_capabilities(void);
 #endif
 #endif /* _ALPM_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

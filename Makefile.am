@@ -20,32 +20,34 @@ pkgdatadir = ${datadir}/${PACKAGE}
 dist_pkgdata_DATA = \
 	proto/PKGBUILD.proto \
 	proto/PKGBUILD-split.proto \
-	proto/proto.install \
-	proto/ChangeLog.proto
+	proto/PKGBUILD-vcs.proto \
+	proto/proto.install
 
-# run the pactest test suite and vercmp tests
-check-local: test-pacman test-pacsort test-vercmp test-parseopts
+$(top_srcdir)/test/pacman/tests/TESTS: $(wildcard test/pacman/tests/*.py)
+	@printf "TESTS += %s\n" $^ | LC_ALL=C sort -u > "$@"
 
-test-pacman: test/pacman src/pacman
-	LC_ALL=C $(PYTHON) $(top_srcdir)/test/pacman/pactest.py --debug=1 \
-		--test $(top_srcdir)/test/pacman/tests/*.py \
+TESTS =  test/scripts/parseopts_test.sh \
+				 test/scripts/human_to_size_test.sh \
+				 test/scripts/pacman-db-upgrade-v9.py \
+				 test/util/pacsorttest.sh \
+				 test/util/vercmptest.sh
+include $(top_srcdir)/test/pacman/tests/TESTS
+
+TEST_SUITE_LOG = test/test-suite.log
+TEST_EXTENSIONS = .py
+AM_TESTS_ENVIRONMENT = \
+	PMTEST_UTIL_DIR=$(top_builddir)/src/util/; export PMTEST_UTIL_DIR; \
+	PMTEST_SCRIPTLIB_DIR=$(top_srcdir)/scripts/library/; export PMTEST_SCRIPTLIB_DIR;
+LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
+								 $(top_srcdir)/build-aux/tap-driver.sh
+PY_LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
+								 $(top_srcdir)/build-aux/tap-driver.sh
+PY_LOG_COMPILER = $(PYTHON) $(top_srcdir)/test/pacman/pactest.py
+AM_PY_LOG_FLAGS = \
 		--scriptlet-shell $(SCRIPTLET_SHELL) \
 		--ldconfig $(LDCONFIG) \
-		-p $(top_builddir)/src/pacman/pacman
-
-test-pacsort: test/util src/util
-	$(BASH_SHELL) $(top_srcdir)/test/util/pacsorttest.sh \
-		$(top_builddir)/src/util/pacsort
-
-test-vercmp: test/util src/util
-	$(BASH_SHELL) $(top_srcdir)/test/util/vercmptest.sh \
-		$(top_builddir)/src/util/vercmp
-
-test-parseopts: test/scripts scripts
-	$(BASH_SHELL) $(top_srcdir)/test/scripts/parseopts_test.sh \
-		$(top_srcdir)/scripts/library/parseopts.sh
-	$(BASH_SHELL) $(top_srcdir)/test/scripts/human_to_size_test.sh \
-		$(top_srcdir)/scripts/library/human_to_size.sh
+		--bindir $(top_builddir)/src/pacman \
+		--bindir $(top_builddir)/scripts
 
 # create the pacman DB and cache directories upon install
 install-data-local:
@@ -58,6 +60,6 @@ update-po:
 	$(MAKE) -C scripts/po update-po
 	$(MAKE) -C src/pacman/po update-po
 
-.PHONY: test-pacman test-pacsort test-vercmp test-parseopts update-po
+.PHONY: update-po
 
-# vim:set ts=2 sw=2 noet:
+# vim:set noet:

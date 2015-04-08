@@ -1,7 +1,7 @@
 /*
  *  error.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -111,6 +111,8 @@ const char SYMEXPORT *alpm_strerror(alpm_errno_t err)
 			return _("invalid or corrupted package (checksum)");
 		case ALPM_ERR_PKG_INVALID_SIG:
 			return _("invalid or corrupted package (PGP signature)");
+		case ALPM_ERR_PKG_MISSING_SIG:
+			return _("package missing required signature");
 		case ALPM_ERR_PKG_OPEN:
 			return _("cannot open package file");
 		case ALPM_ERR_PKG_CANT_REMOVE:
@@ -161,4 +163,4 @@ const char SYMEXPORT *alpm_strerror(alpm_errno_t err)
 	}
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

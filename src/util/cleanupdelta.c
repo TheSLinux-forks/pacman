@@ -1,7 +1,7 @@
 /*
  *  cleanupdelta.c : return list of unused delta in a given sync database
  *
- *  Copyright (c) 2011 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2011-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,8 +23,6 @@
 
 #include <alpm.h>
 #include <alpm_list.h>
-
-#define BASENAME "cleanupdelta"
 
 alpm_handle_t *handle = NULL;
 
@@ -87,9 +85,10 @@ static void checkdbs(alpm_list_t *dbnames)
 
 static void usage(void)
 {
-	fprintf(stderr, "usage:\n");
-	fprintf(stderr,
-			"\t%s [-b <pacman db>] core extra ... : check the listed sync databases\n", BASENAME);
+	fprintf(stderr, "cleanupdelta (pacman) v" PACKAGE_VERSION "\n\n"
+			"Returns a list of unused delta in a given sync database.\n\n"
+			"Usage: cleanupdelta [options]\n\n"
+			"  -b <pacman db>       core extra ... : check the listed sync databases\n");
 	exit(1);
 }
 
@@ -135,4 +134,4 @@ int main(int argc, char *argv[])
 	cleanup(0);
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

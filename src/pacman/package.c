@@ -1,7 +1,7 @@
 /*
  *  package.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -140,7 +140,7 @@ void dump_pkg_full(alpm_pkg_t *pkg, int extra)
 		optionalfor = alpm_pkg_compute_optionalfor(pkg);
 	}
 
-	cols = getcols(fileno(stdout));
+	cols = getcols();
 
 	/* actual output */
 	if(from == ALPM_PKG_FROM_SYNCDB) {
@@ -165,16 +165,19 @@ void dump_pkg_full(alpm_pkg_t *pkg, int extra)
 	deplist_display(_("Conflicts With :"), alpm_pkg_get_conflicts(pkg), cols);
 	deplist_display(_("Replaces       :"), alpm_pkg_get_replaces(pkg), cols);
 
-	size = humanize_size(alpm_pkg_get_size(pkg), 'K', 2, &label);
+	size = humanize_size(alpm_pkg_get_size(pkg), '\0', 2, &label);
 	if(from == ALPM_PKG_FROM_SYNCDB) {
 		printf("%s%s%s %6.2f %s\n", config->colstr.title, _("Download Size  :"),
 			config->colstr.nocolor, size, label);
 	} else if(from == ALPM_PKG_FROM_FILE) {
 		printf("%s%s%s %6.2f %s\n", config->colstr.title, _("Compressed Size:"),
 			config->colstr.nocolor, size, label);
+	} else {
+		// autodetect size for "Installed Size"
+		label = "\0";
 	}
 
-	size = humanize_size(alpm_pkg_get_isize(pkg), 'K', 2, &label);
+	size = humanize_size(alpm_pkg_get_isize(pkg), label[0], 2, &label);
 	printf("%s%s%s %6.2f %s\n", config->colstr.title, _("Installed Size :"),
 			config->colstr.nocolor, size, label);
 
@@ -186,14 +189,25 @@ void dump_pkg_full(alpm_pkg_t *pkg, int extra)
 	}
 	if(from == ALPM_PKG_FROM_FILE || from == ALPM_PKG_FROM_LOCALDB) {
 		string_display(_("Install Script :"),
-				alpm_pkg_has_scriptlet(pkg) ?  _("Yes") : _("No"), cols);
+				alpm_pkg_has_scriptlet(pkg) ? _("Yes") : _("No"), cols);
 	}
 
 	if(from == ALPM_PKG_FROM_SYNCDB && extra) {
+		const char *base64_sig = alpm_pkg_get_base64_sig(pkg);
+		alpm_list_t *keys = NULL;
+		if(base64_sig) {
+			unsigned char *decoded_sigdata = NULL;
+			size_t data_len;
+			alpm_decode_signature(base64_sig, &decoded_sigdata, &data_len);
+			alpm_extract_keyid(config->handle, alpm_pkg_get_name(pkg),
+					decoded_sigdata, data_len, &keys);
+		} else {
+			keys = alpm_list_add(keys, _("None"));
+		}
+
 		string_display(_("MD5 Sum        :"), alpm_pkg_get_md5sum(pkg), cols);
-		string_display(_("SHA256 Sum     :"), alpm_pkg_get_sha256sum(pkg), cols);
-		string_display(_("Signatures     :"),
-				alpm_pkg_get_base64_sig(pkg) ? _("Yes") : _("None"), cols);
+		string_display(_("SHA-256 Sum    :"), alpm_pkg_get_sha256sum(pkg), cols);
+		list_display(_("Signatures     :"), keys, cols);
 	} else {
 		list_display(_("Validated By   :"), validation, cols);
 	}
@@ -221,6 +235,7 @@ void dump_pkg_full(alpm_pkg_t *pkg, int extra)
 	printf("\n");
 
 	FREELIST(requiredby);
+	FREELIST(optionalfor);
 	alpm_list_free(validation);
 }
 
@@ -360,7 +375,7 @@ void print_installed(alpm_db_t *db_local, alpm_pkg_t *pkg)
 }
 
 /**
- * Display the defails of a search.
+ * Display the details of a search.
  * @param db the database we're searching
  * @param targets the targets we're searching for
  * @param show_status show if the package is also in the local db
@@ -389,7 +404,7 @@ int dump_pkg_search(alpm_db_t *db, alpm_list_t *targets, int show_status)
 		return 1;
 	}
 
-	cols = getcols(fileno(stdout));
+	cols = getcols();
 	for(i = searchlist; i; i = alpm_list_next(i)) {
 		alpm_list_t *grp;
 		alpm_pkg_t *pkg = i->data;
@@ -434,4 +449,4 @@ int dump_pkg_search(alpm_db_t *db, alpm_list_t *targets, int show_status)
 	return 0;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

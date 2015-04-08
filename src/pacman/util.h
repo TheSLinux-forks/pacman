@@ -1,7 +1,7 @@
 /*
  *  util.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -34,8 +34,8 @@
 #define _(str) gettext(str)
 #define _n(str1, str2, ct) ngettext(str1, str2, ct)
 #else
-#define _(str) str
-#define _n(str1, str2, ct) (ct == 1 ? str1 : str2)
+#define _(str) (char *)str
+#define _n(str1, str2, ct) (char *)(ct == 1 ? str1 : str2)
 #endif
 
 typedef struct _pm_target_t {
@@ -49,12 +49,12 @@ int trans_init(alpm_transflag_t flags, int check_valid);
 int trans_release(void);
 int needs_root(void);
 int check_syncdbs(size_t need_repos, int check_valid);
-unsigned short getcols(int fd);
+unsigned short getcols(void);
+void columns_cache_reset(void);
 int rmrf(const char *path);
 void indentprint(const char *str, unsigned short indent, unsigned short cols);
 size_t strtrim(char *str);
 char *strreplace(const char *str, const char *needle, const char *replace);
-alpm_list_t *strsplit(const char *str, const char splitchar);
 void string_display(const char *title, const char *string, unsigned short cols);
 double humanize_size(off_t bytes, const char target_unit, int precision,
 		const char **label);
@@ -79,8 +79,9 @@ int noyes(const char *format, ...) __attribute__((format(printf, 1, 2)));
 int pm_printf(alpm_loglevel_t level, const char *format, ...) __attribute__((format(printf,2,3)));
 int pm_asprintf(char **string, const char *format, ...) __attribute__((format(printf,2,3)));
 int pm_vfprintf(FILE *stream, alpm_loglevel_t level, const char *format, va_list args) __attribute__((format(printf,3,0)));
+int pm_sprintf(char **string, alpm_loglevel_t level, const char *format, ...) __attribute__((format(printf,3,4)));
 int pm_vasprintf(char **string, alpm_loglevel_t level, const char *format, va_list args) __attribute__((format(printf,3,0)));
 
 #endif /* _PM_UTIL_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

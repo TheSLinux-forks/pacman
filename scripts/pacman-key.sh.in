@@ -4,7 +4,7 @@
 #                Based on apt-key, from Debian
 #   @configure_input@
 #
-#   Copyright (c) 2010-2013 Pacman Development Team <pacman-dev@archlinux.org>
+#   Copyright (c) 2010-2014 Pacman Development Team <pacman-dev@archlinux.org>
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -92,7 +92,7 @@ usage() {
 version() {
 	printf "pacman-key (pacman) %s\n" "${myver}"
 	printf -- "$(gettext "\
-Copyright (c) 2010-2013 Pacman Development Team <pacman-dev@archlinux.org>.\n\
+Copyright (c) 2010-2014 Pacman Development Team <pacman-dev@archlinux.org>.\n\
 This is free software; see the source for copying conditions.\n\
 There is NO WARRANTY, to the extent permitted by law.\n")"
 }
@@ -151,6 +151,7 @@ Key-Usage: sign
 Name-Real: Pacman Keyring Master Key
 Name-Email: pacman@localhost
 Expire-Date: 0
+%no-protection
 %commit
 %echo Done
 EOF
@@ -310,19 +311,12 @@ populate_keyring() {
 		done
 	fi
 
-	# Read the revoked key IDs to an array. The conversion from whatever is
-	# inside the file to key ids is important, because key ids are the only
-	# guarantee of identification for the keys.
 	local -A revoked_ids
 	for keyring in "${KEYRINGIDS[@]}"; do
-		if [[ -s "${KEYRING_IMPORT_DIR}/${keyring}-revoked" ]]; then
-			mapfile -t keys < "${KEYRING_IMPORT_DIR}/${keyring}-revoked"
-			while IFS=: read _ _ _ _ key_id _; do
-				if [[ -n $key_id ]]; then
-					# Mark this key to be disabled
-					revoked_ids[$key_id]="${keyring}"
-				fi
-			done < <("${GPG_PACMAN[@]}" --quiet --with-colons --list-keys "${keys[@]}" 2>/dev/null)
+		if [[ -s $KEYRING_IMPORT_DIR/$keyring-revoked ]]; then
+			while read -r key_id; do
+				revoked_ids["$key_id"]=1
+			done <"$KEYRING_IMPORT_DIR/$keyring-revoked"
 		fi
 	done
 
@@ -489,7 +483,7 @@ verify_sig() {
 	local ret=0
 	for sig; do
 		msg "Checking %s ..." "$sig"
-		if ! "${GPG_PACMAN[@]}" --status-fd 1 --verify "$sig" | grep -qE 'TRUST_(FULLY|ULTIMATE)'; then
+		if ! "${GPG_PACMAN[@]}" --status-fd 1 --verify "$sig" | grep -qE '^\[GNUPG:\] TRUST_(FULLY|ULTIMATE)$'; then
 			error "$(gettext "The signature identified by %s could not be verified.")" "$sig"
 			ret=1
 		fi
@@ -634,4 +628,4 @@ fi
 
 exit 0
 
-# vim: set ts=2 sw=2 noet:
+# vim: set noet:

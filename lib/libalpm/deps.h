@@ -1,7 +1,7 @@
 /*
  *  deps.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2006 by Miklos Vajna <vmiklos@frugalware.org>
@@ -27,18 +27,17 @@
 #include "package.h"
 #include "alpm.h"
 
-void _alpm_dep_free(alpm_depend_t *dep);
 alpm_depend_t *_alpm_dep_dup(const alpm_depend_t *dep);
-void _alpm_depmiss_free(alpm_depmissing_t *miss);
-alpm_list_t *_alpm_sortbydeps(alpm_handle_t *handle, alpm_list_t *targets, int reverse);
-int _alpm_recursedeps(alpm_db_t *db, alpm_list_t *targs, int include_explicit);
+alpm_list_t *_alpm_sortbydeps(alpm_handle_t *handle,
+		alpm_list_t *targets, alpm_list_t *ignore, int reverse);
+int _alpm_recursedeps(alpm_db_t *db, alpm_list_t **targs, int include_explicit);
 int _alpm_resolvedeps(alpm_handle_t *handle, alpm_list_t *localpkgs, alpm_pkg_t *pkg,
 		alpm_list_t *preferred, alpm_list_t **packages, alpm_list_t *remove,
 		alpm_list_t **data);
-alpm_depend_t *_alpm_splitdep(const char *depstring);
 int _alpm_depcmp_literal(alpm_pkg_t *pkg, alpm_depend_t *dep);
+int _alpm_depcmp_provides(alpm_depend_t *dep, alpm_list_t *provisions);
 int _alpm_depcmp(alpm_pkg_t *pkg, alpm_depend_t *dep);
 
 #endif /* _ALPM_DEPS_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

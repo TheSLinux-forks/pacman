@@ -1,7 +1,7 @@
 #!/usr/bin/perl
-# pacsearch - Adds color and install information to a 'pacman -Ss' search
+# pacsearch - Perform a pacman search using both the local and the sync databases
 #
-# Copyright (C) 2008-2011 Dan McGee <dan@archlinux.org>
+# Copyright (C) 2008-2014 Dan McGee <dan@archlinux.org>
 #
 # Based off original shell script version:
 # Copyright (C) 2006-2007 Dan McGee <dan@archlinux.org>
@@ -19,23 +19,25 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#TODO: colors flag on commandline
-
 use strict;
 use warnings;
+use Term::ANSIColor;
 
 my $myname = 'pacsearch';
 my $myver = '@PACKAGE_VERSION@';
 
 sub usage {
-	print "$myname - Add color and install information to a pacman -Ss search\n";
-	print "Usage:   $myname <pattern>\n";
+	print "$myname (pacman) v$myver\n\n";
+	print "Perform a pacman search using both the local and the sync databases.\n\n";
+	print "Usage: $myname [-n] <pattern>\n\n";
+	print "Options:\n";
+	print "	 -n, --nocolor: turn off coloring\n\n";
 	print "Example: $myname ^gnome\n";
 }
 
 sub version {
 	printf "%s %s\n", $myname, $myver;
-	print "Copyright (C) 2008-2011 Dan McGee <dan\@archlinux.org>\n\n";
+	print "Copyright (C) 2008-2014 Dan McGee <dan\@archlinux.org>\n\n";
 	print "Based off original shell script version:\n";
 	print "Copyright (C) 2006-2007 Dan McGee <dan\@archlinux.org>\n";
 }
@@ -53,96 +55,71 @@ if ($ARGV[0] eq "--version" || $ARGV[0] eq "-V") {
 	exit 0;
 }
 
-# define our colors to use when printing
-my $CLR1 = "\e[0;34m";
-my $CLR2 = "\e[0;32m";
-my $CLR3 = "\e[0;35m";
-my $CLR4 = "\e[0;36m";
-my $CLR5 = "\e[0;31m";
-my $CLR6 = "\e[0;33m";
-my $CLR7 = "\e[1;36m";
-my $INST = "\e[1;31m";
-my $BASE = "\e[0m";
-
-# color a "repo/pkgname pkgver" line based on the repository name
-sub to_color {
-	my $line = shift;
-	# get the installed text colored first
-	$line =~ s/(\[.*\]$)/$INST$1$BASE/;
-	# and now the repo and dealings
-	$line =~ s/(^core\/.*)/$CLR1$1$BASE/;
-	$line =~ s/(^extra\/.*)/$CLR2$1$BASE/;
-	$line =~ s/(^community\/.*)/$CLR3$1$BASE/;
-	$line =~ s/(^testing\/.*)/$CLR4$1$BASE/;
-	$line =~ s/(^community-testing\/.*)/$CLR5$1$BASE/;
-	$line =~ s/(^multilib\/.*)/$CLR6$1$BASE/;
-	$line =~ s/(^local\/.*)/$CLR7$1$BASE/;
-	# any other unknown repository
-	$line =~ s/(^[\w-]*\/.*)/$CLR6$1$BASE/;
-	return $line;
+# define formatting variables
+my($BLUE, $CYAN, $GREEN, $MAGENTA, $RED, $YELLOW, $BOLD, $RESET);
+if ($ARGV[0] eq "--nocolor" || $ARGV[0] eq "-n") {
+	shift;
+	$BLUE = "";
+	$CYAN = "";
+	$GREEN = "";
+	$MAGENTA = "";
+	$RED = "";
+	$YELLOW = "";
+	$BOLD = "";
+	$RESET = "";
+} else {
+	$BLUE = color('blue');
+	$CYAN = color('cyan');
+	$GREEN = color('green');
+	$MAGENTA = color('magenta');
+	$RED = color('red');
+	$YELLOW = color('yellow');
+	$BOLD = color('bold');
+	$RESET = color('reset');
 }
 
-my %allpkgs = ();
+# localization
+my $LC_INSTALLED = `gettext pacman installed`;
 
-my $syncout = `pacman -Ss '@ARGV'`;
-# split each sync search entry into its own array entry
-my @syncpkgs = split(/\n^(?=\w)/m, $syncout);
-# remove the extra \n from the last desc entry
-if ($#syncpkgs >= 0) {
-	chomp($syncpkgs[$#syncpkgs]);
-}
-
-# counter var for packages, used here and in the query loop too
-my $cnt = 0;
-foreach $_ (@syncpkgs) {
-	# we grab 4 fields here: repo, name/ver, installed, and desc
-	my @pkgfields = /^(.*?)\/(.*?) ?(\[.*\])?\n(.*)$/s;
-	if(not @pkgfields) {
-		# skip any non-matching line and just print it for the user
-		print $_, "\n";
-		next;
+# Print a "repo/pkgname pkgver (groups) [installed]" line.
+# We stick to pacman colors.
+sub print_pkg {
+	my @v = @_;
+	print "$RESET$BOLD";
+	if ( "$v[0]" eq "local" ) {
+		print "$RED";
+	} else {
+		print "$MAGENTA";
 	}
-	# since installed is optional, we should fill it in if necessary
-	$pkgfields[2] = "" if not defined $pkgfields[2];
-	# add a fifth field that indicates original order
-	push (@pkgfields, $cnt++);
-	# add each sync pkg by name/ver to a hash table for quick lookup
-	$allpkgs{$pkgfields[1]} = [ @pkgfields ];
+	print "$v[0]/$RESET$BOLD$v[1] $GREEN$v[2]$BLUE$v[3]$CYAN$v[4]$RESET\n";
+	print "$v[5]";
 }
 
-my $queryout = `pacman -Qs '@ARGV'`;
-# split each querysearch entry into its own array entry
-my @querypkgs = split(/\n^(?=\w)/m, $queryout);
-# remove the extra \n from the last desc entry
-if ($#querypkgs >= 0) {
-	chomp ($querypkgs[$#querypkgs]);
-}
-
-foreach $_ (@querypkgs) {
-	# we grab 4 fields here: repo, name/ver, installed, and desc
-	my @pkgfields = /^(.*?)\/(.*?) ?(\[.*\])?\n(.*)$/s;
-	# skip any non-matching line
-	next if not defined $pkgfields[1];
-	# since installed is optional, we should fill it in if necessary
-	$pkgfields[2] = "" if not defined $pkgfields[2];
-	# check if the package was listed in the sync out
-	if (not exists $allpkgs{$pkgfields[1]}) {
-		$pkgfields[2] = "[installed]";
-		# add a fifth field that indicates original order (after sync)
-		push (@pkgfields, $cnt++);
-		# add our local-only package to the hash
-		$allpkgs{$pkgfields[1]} = [ @pkgfields ];
+sub list_pkg {
+	my $db = shift;
+	open (my $out, '-|', 'pacman', $db, '--', @ARGV) or exit 1;
+	my @pkglist = ();
+	while ( readline($out) ) {
+		# We grab the following fields: repo, name, ver, group, installed, and
+		# desc. We grab leading space for 'group' and 'installed' so that we do
+		# not need to test if non-empty when printing.
+		my @pkgfields = /^(.*?)\/(.*?) (.*?)( \(.*?\))?( \[.*\])?$/s;
+		my $desc = readline($out);
+		# since 'group' and 'installed' are optional, we should fill it in if
+		# necessary
+		$pkgfields[3] = "" if not defined $pkgfields[3];
+		$pkgfields[4] = "" if not defined $pkgfields[4];
+		$pkgfields[5] = $desc;
+		push (@pkglist, \@pkgfields);
 	}
+	close ($out);
+	return @pkglist;
 }
 
-# sort by original order (the fifth field) and print
-foreach $_ ( sort{ @{$allpkgs{$a}}[4] <=> @{$allpkgs{$b}}[4] } keys %allpkgs) {
-	my @v = @{$allpkgs{$_}};
-	my $line = "$v[0]/$v[1] $v[2]";
-	$line = to_color($line);
-	# print colorized "repo/pkgname pkgver" string with possible installed text
-	print "$line\n";
-	print "$v[3]\n";
-}
+my @sync = list_pkg('-Ss', @ARGV);
+my %allpkgs = map {$_->[1] . $_->[2] => 1} @sync;
+my @query = grep { not $allpkgs{$_->[1] . $_->[2]}} list_pkg('-Qs', @ARGV);
+$_->[4] = " [$LC_INSTALLED]" foreach @query;
+print_pkg (@{$_}) foreach (@sync, @query);
 
 #vim: set noet:

@@ -1,7 +1,7 @@
 /*
  *  db.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -46,12 +46,26 @@
 alpm_db_t SYMEXPORT *alpm_register_syncdb(alpm_handle_t *handle,
 		const char *treename, alpm_siglevel_t level)
 {
+	alpm_list_t *i;
+
 	/* Sanity checks */
 	CHECK_HANDLE(handle, return NULL);
 	ASSERT(treename != NULL && strlen(treename) != 0,
 			RET_ERR(handle, ALPM_ERR_WRONG_ARGS, NULL));
+	ASSERT(!strchr(treename, '/'), RET_ERR(handle, ALPM_ERR_WRONG_ARGS, NULL));
 	/* Do not register a database if a transaction is on-going */
 	ASSERT(handle->trans == NULL, RET_ERR(handle, ALPM_ERR_TRANS_NOT_NULL, NULL));
+
+	/* ensure database name is unique */
+	if(strcmp(treename, "local") == 0) {
+		RET_ERR(handle, ALPM_ERR_DB_NOT_NULL, NULL);
+	}
+	for(i = handle->dbs_sync; i; i = i->next) {
+		alpm_db_t *d = i->data;
+		if(strcmp(treename, d->treename) == 0) {
+			RET_ERR(handle, ALPM_ERR_DB_NOT_NULL, NULL);
+		}
+	}
 
 	return _alpm_db_register_sync(handle, treename, level);
 }
@@ -292,6 +306,23 @@ alpm_list_t SYMEXPORT *alpm_db_search(alpm_db_t *db, const alpm_list_t *needles)
 	return _alpm_db_search(db, needles);
 }
 
+/** Sets the usage bitmask for a repo */
+int SYMEXPORT alpm_db_set_usage(alpm_db_t *db, alpm_db_usage_t usage)
+{
+	ASSERT(db != NULL, return -1);
+	db->usage = usage;
+	return 0;
+}
+
+/** Gets the usage bitmask for a repo */
+int SYMEXPORT alpm_db_get_usage(alpm_db_t *db, alpm_db_usage_t *usage)
+{
+	ASSERT(db != NULL, return -1);
+	ASSERT(usage != NULL, return -1);
+	*usage = db->usage;
+	return 0;
+}
+
 
 /** @} */
 
@@ -306,6 +337,7 @@ alpm_db_t *_alpm_db_new(const char *treename, int is_local)
 	} else {
 		db->status &= ~DB_STATUS_LOCAL;
 	}
+	db->usage = ALPM_DB_USAGE_ALL;
 
 	return db;
 }
@@ -365,6 +397,11 @@ alpm_list_t *_alpm_db_search(alpm_db_t *db, const alpm_list_t *needles)
 {
 	const alpm_list_t *i, *j, *k;
 	alpm_list_t *ret = NULL;
+
+	if(!(db->usage & ALPM_DB_USAGE_SEARCH)) {
+		return NULL;
+	}
+
 	/* copy the pkgcache- we will free the list var after each needle */
 	alpm_list_t *list = alpm_list_copy(_alpm_db_get_pkgcache(db));
 
@@ -421,7 +458,8 @@ alpm_list_t *_alpm_db_search(alpm_db_t *db, const alpm_list_t *needles)
 
 			if(matched != NULL) {
 				_alpm_log(db->handle, ALPM_LOG_DEBUG,
-						"search target '%s' matched '%s'\n", targ, matched);
+						"search target '%s' matched '%s' on package '%s'\n",
+						targ, matched, name);
 				ret = alpm_list_add(ret, pkg);
 			}
 		}
@@ -536,6 +574,13 @@ int _alpm_db_add_pkgincache(alpm_db_t *db, alpm_pkg_t *pkg)
 
 	_alpm_log(db->handle, ALPM_LOG_DEBUG, "adding entry '%s' in '%s' cache\n",
 						newpkg->name, db->treename);
+	if(newpkg->origin == ALPM_PKG_FROM_FILE) {
+		free(newpkg->origin_data.file);
+	}
+	newpkg->origin = (db->status & DB_STATUS_LOCAL)
+		? ALPM_PKG_FROM_LOCALDB
+		: ALPM_PKG_FROM_SYNCDB;
+	newpkg->origin_data.db = db;
 	db->pkgcache = _alpm_pkghash_add_sorted(db->pkgcache, newpkg);
 
 	free_groupcache(db);
@@ -671,4 +716,4 @@ alpm_group_t *_alpm_db_get_groupfromcache(alpm_db_t *db, const char *target)
 	return NULL;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

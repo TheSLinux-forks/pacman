@@ -1,7 +1,7 @@
 /*
  *  remove.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -63,6 +63,8 @@ int SYMEXPORT alpm_remove_pkg(alpm_handle_t *handle, alpm_pkg_t *pkg)
 	/* Sanity checks */
 	CHECK_HANDLE(handle, return -1);
 	ASSERT(pkg != NULL, RET_ERR(handle, ALPM_ERR_WRONG_ARGS, -1));
+	ASSERT(pkg->origin == ALPM_PKG_FROM_LOCALDB,
+			RET_ERR(handle, ALPM_ERR_WRONG_ARGS, -1));
 	ASSERT(handle == pkg->handle, RET_ERR(handle, ALPM_ERR_WRONG_ARGS, -1));
 	trans = handle->trans;
 	ASSERT(trans != NULL, RET_ERR(handle, ALPM_ERR_TRANS_NULL, -1));
@@ -116,7 +118,7 @@ static int remove_prepare_cascade(alpm_handle_t *handle, alpm_list_t *lp)
 						_("could not find %s in database -- skipping\n"), miss->target);
 			}
 		}
-		alpm_list_free_inner(lp, (alpm_list_fn_free)_alpm_depmiss_free);
+		alpm_list_free_inner(lp, (alpm_list_fn_free)alpm_depmissing_free);
 		alpm_list_free(lp);
 		lp = alpm_checkdeps(handle, _alpm_db_get_pkgcache(handle->db_local),
 				trans->remove, NULL, 1);
@@ -153,7 +155,7 @@ static void remove_prepare_keep_needed(alpm_handle_t *handle, alpm_list_t *lp)
 				_alpm_pkg_free(pkg);
 			}
 		}
-		alpm_list_free_inner(lp, (alpm_list_fn_free)_alpm_depmiss_free);
+		alpm_list_free_inner(lp, (alpm_list_fn_free)alpm_depmissing_free);
 		alpm_list_free(lp);
 		lp = alpm_checkdeps(handle, _alpm_db_get_pkgcache(handle->db_local),
 				trans->remove, NULL, 1);
@@ -179,7 +181,12 @@ static void remove_notify_needed_optdepends(alpm_handle_t *handle, alpm_list_t *
 			for(j = optdeps; j; j = alpm_list_next(j)) {
 				alpm_depend_t *optdep = j->data;
 				if(alpm_pkg_find(lp, optdep->name)) {
-					EVENT(handle, ALPM_EVENT_OPTDEP_REQUIRED, pkg, optdep);
+					alpm_event_optdep_removal_t event = {
+						.type = ALPM_EVENT_OPTDEP_REMOVAL,
+						.pkg = pkg,
+						.optdep = optdep
+					};
+					EVENT(handle, &event);
 				}
 			}
 		}
@@ -203,18 +210,20 @@ int _alpm_remove_prepare(alpm_handle_t *handle, alpm_list_t **data)
 	alpm_list_t *lp;
 	alpm_trans_t *trans = handle->trans;
 	alpm_db_t *db = handle->db_local;
+	alpm_event_t event;
 
 	if((trans->flags & ALPM_TRANS_FLAG_RECURSE)
 			&& !(trans->flags & ALPM_TRANS_FLAG_CASCADE)) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "finding removable dependencies\n");
-		if(_alpm_recursedeps(db, trans->remove,
+		if(_alpm_recursedeps(db, &trans->remove,
 				trans->flags & ALPM_TRANS_FLAG_RECURSEALL)) {
 			return -1;
 		}
 	}
 
 	if(!(trans->flags & ALPM_TRANS_FLAG_NODEPS)) {
-		EVENT(handle, ALPM_EVENT_CHECKDEPS_START, NULL, NULL);
+		event.type = ALPM_EVENT_CHECKDEPS_START;
+		EVENT(handle, &event);
 
 		_alpm_log(handle, ALPM_LOG_DEBUG, "looking for unsatisfied dependencies\n");
 		lp = alpm_checkdeps(handle, _alpm_db_get_pkgcache(db), trans->remove, NULL, 1);
@@ -232,7 +241,8 @@ int _alpm_remove_prepare(alpm_handle_t *handle, alpm_list_t **data)
 				if(data) {
 					*data = lp;
 				} else {
-					alpm_list_free_inner(lp, (alpm_list_fn_free)_alpm_depmiss_free);
+					alpm_list_free_inner(lp,
+							(alpm_list_fn_free)alpm_depmissing_free);
 					alpm_list_free(lp);
 				}
 				RET_ERR(handle, ALPM_ERR_UNSATISFIED_DEPS, -1);
@@ -240,18 +250,11 @@ int _alpm_remove_prepare(alpm_handle_t *handle, alpm_list_t **data)
 		}
 	}
 
-	/* re-order w.r.t. dependencies */
-	_alpm_log(handle, ALPM_LOG_DEBUG, "sorting by dependencies\n");
-	lp = _alpm_sortbydeps(handle, trans->remove, 1);
-	/* free the old alltargs */
-	alpm_list_free(trans->remove);
-	trans->remove = lp;
-
 	/* -Rcs == -Rc then -Rs */
 	if((trans->flags & ALPM_TRANS_FLAG_CASCADE)
 			&& (trans->flags & ALPM_TRANS_FLAG_RECURSE)) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "finding removable dependencies\n");
-		if(_alpm_recursedeps(db, trans->remove,
+		if(_alpm_recursedeps(db, &trans->remove,
 					trans->flags & ALPM_TRANS_FLAG_RECURSEALL)) {
 			return -1;
 		}
@@ -261,12 +264,23 @@ int _alpm_remove_prepare(alpm_handle_t *handle, alpm_list_t **data)
 	remove_notify_needed_optdepends(handle, trans->remove);
 
 	if(!(trans->flags & ALPM_TRANS_FLAG_NODEPS)) {
-		EVENT(handle, ALPM_EVENT_CHECKDEPS_DONE, NULL, NULL);
+		event.type = ALPM_EVENT_CHECKDEPS_DONE;
+		EVENT(handle, &event);
 	}
 
 	return 0;
 }
 
+/**
+ * @brief Test if a directory is being used as a mountpoint.
+ *
+ * @param handle context handle
+ * @param directory path to test, must be absolute and include trailing '/'
+ * @param stbuf stat result for @a directory, may be NULL
+ *
+ * @return 0 if @a directory is not a mountpoint or on error, 1 if @a directory
+ * is a mountpoint
+ */
 static int dir_is_mountpoint(alpm_handle_t *handle, const char *directory,
 		const struct stat *stbuf)
 {
@@ -312,18 +326,19 @@ static int can_remove_file(alpm_handle_t *handle, const alpm_file_t *file,
 {
 	char filepath[PATH_MAX];
 
-	if(alpm_list_find(skip_remove, file->name, _alpm_fnmatch)) {
+	if(_alpm_fnmatch_patterns(skip_remove, file->name) == 0) {
 		/* return success because we will never actually remove this file */
 		return 1;
 	}
 
+	snprintf(filepath, PATH_MAX, "%s%s", handle->root, file->name);
+
 	if(file->name[strlen(file->name) - 1] == '/' &&
-			dir_is_mountpoint(handle, file->name, NULL)) {
+			dir_is_mountpoint(handle, filepath, NULL)) {
 		/* we do not remove mountpoints */
 		return 1;
 	}
 
-	snprintf(filepath, PATH_MAX, "%s%s", handle->root, file->name);
 	/* If we fail write permissions due to a read-only filesystem, abort.
 	 * Assume all other possible failures are covered somewhere else */
 	if(_alpm_access(handle, NULL, filepath, W_OK) == -1) {
@@ -436,17 +451,13 @@ static int unlink_file(alpm_handle_t *handle, alpm_pkg_t *oldpkg,
 	/* check the remove skip list before removing the file.
 	 * see the big comment block in db_find_fileconflicts() for an
 	 * explanation. */
-	if(alpm_list_find(skip_remove, fileobj->name, _alpm_fnmatch)) {
+	if(_alpm_fnmatch_patterns(skip_remove, fileobj->name) == 0) {
 		_alpm_log(handle, ALPM_LOG_DEBUG,
 				"%s is in skip_remove, skipping removal\n", file);
 		return 1;
 	}
 
-	/* we want to do a lstat here, and not a _alpm_lstat.
-	 * if a directory in the package is actually a directory symlink on the
-	 * filesystem, we want to work with the linked directory instead of the
-	 * actual symlink */
-	if(lstat(file, &buf)) {
+	if(llstat(file, &buf)) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "file %s does not exist\n", file);
 		return 1;
 	}
@@ -462,7 +473,6 @@ static int unlink_file(alpm_handle_t *handle, alpm_pkg_t *oldpkg,
 					"keeping directory %s (could not count files)\n", file);
 		} else if(newpkg && alpm_filelist_contains(alpm_pkg_get_files(newpkg),
 					fileobj->name)) {
-			/* newpkg's filelist should have already been resolved by the caller */
 			_alpm_log(handle, ALPM_LOG_DEBUG,
 					"keeping directory %s (in new package)\n", file);
 		} else if(dir_is_mountpoint(handle, file, &buf)) {
@@ -484,9 +494,6 @@ static int unlink_file(alpm_handle_t *handle, alpm_pkg_t *oldpkg,
 					continue;
 				}
 				filelist = alpm_pkg_get_files(local_pkg);
-				/* This is too slow and only covers a rare case
-				   Disable for now... */
-				/* _alpm_filelist_resolve(handle, filelist); */
 				if(alpm_filelist_contains(filelist, fileobj->name)) {
 					_alpm_log(handle, ALPM_LOG_DEBUG,
 							"keeping directory %s (owned by %s)\n", file, local_pkg->name);
@@ -515,6 +522,11 @@ static int unlink_file(alpm_handle_t *handle, alpm_pkg_t *oldpkg,
 				int cmp = filehash ? strcmp(filehash, backup->hash) : 0;
 				FREE(filehash);
 				if(cmp != 0) {
+					alpm_event_pacsave_created_t event = {
+						.type = ALPM_EVENT_PACSAVE_CREATED,
+						.oldpkg = oldpkg,
+						.file = file
+					};
 					char *newpath;
 					size_t len = strlen(file) + 8 + 1;
 					MALLOC(newpath, len, RET_ERR(handle, ALPM_ERR_MEMORY, -1));
@@ -529,7 +541,7 @@ static int unlink_file(alpm_handle_t *handle, alpm_pkg_t *oldpkg,
 						free(newpath);
 						return -1;
 					}
-					_alpm_log(handle, ALPM_LOG_WARNING, _("%s saved as %s\n"), file, newpath);
+					EVENT(handle, &event);
 					alpm_logaction(handle, ALPM_CALLER_PREFIX,
 							"warning: %s saved as %s\n", file, newpath);
 					free(newpath);
@@ -584,7 +596,6 @@ static int remove_package_files(alpm_handle_t *handle,
 		 * so this removal operation doesn't kill them */
 		/* old package backup list */
 		newfiles = alpm_pkg_get_files(newpkg);
-		_alpm_filelist_resolve(handle, newfiles);
 		for(b = alpm_pkg_get_backup(newpkg); b; b = b->next) {
 			const alpm_backup_t *backup = b->data;
 			/* safety check (fix the upgrade026 pactest) */
@@ -661,16 +672,22 @@ int _alpm_remove_single_package(alpm_handle_t *handle,
 {
 	const char *pkgname = oldpkg->name;
 	const char *pkgver = oldpkg->version;
+	alpm_event_package_operation_t event = {
+		.type = ALPM_EVENT_PACKAGE_OPERATION_START,
+		.operation = ALPM_PACKAGE_REMOVE,
+		.oldpkg = oldpkg,
+		.newpkg = NULL
+	};
 
 	if(newpkg) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "removing old package first (%s-%s)\n",
 				pkgname, pkgver);
 	} else {
-		EVENT(handle, ALPM_EVENT_REMOVE_START, oldpkg, NULL);
+		EVENT(handle, &event);
 		_alpm_log(handle, ALPM_LOG_DEBUG, "removing package %s-%s\n",
 				pkgname, pkgver);
 
-		/* run the pre-remove scriptlet if it exists  */
+		/* run the pre-remove scriptlet if it exists */
 		if(alpm_pkg_has_scriptlet(oldpkg) &&
 				!(handle->trans->flags & ALPM_TRANS_FLAG_NOSCRIPTLET)) {
 			char *scriptlet = _alpm_local_db_pkgpath(handle->db_local,
@@ -685,7 +702,12 @@ int _alpm_remove_single_package(alpm_handle_t *handle,
 		remove_package_files(handle, oldpkg, newpkg, targ_count, pkg_count);
 	}
 
-	/* run the post-remove script if it exists  */
+	if(!newpkg) {
+		alpm_logaction(handle, ALPM_CALLER_PREFIX, "removed %s (%s)\n",
+					oldpkg->name, oldpkg->version);
+	}
+
+	/* run the post-remove script if it exists */
 	if(!newpkg && alpm_pkg_has_scriptlet(oldpkg) &&
 			!(handle->trans->flags & ALPM_TRANS_FLAG_NOSCRIPTLET)) {
 		char *scriptlet = _alpm_local_db_pkgpath(handle->db_local,
@@ -695,7 +717,8 @@ int _alpm_remove_single_package(alpm_handle_t *handle,
 	}
 
 	if(!newpkg) {
-		EVENT(handle, ALPM_EVENT_REMOVE_DONE, oldpkg, NULL);
+		event.type = ALPM_EVENT_PACKAGE_OPERATION_DONE;
+		EVENT(handle, &event);
 	}
 
 	/* remove the package from the database */
@@ -758,4 +781,4 @@ int _alpm_remove_packages(alpm_handle_t *handle, int run_ldconfig)
 	return ret;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

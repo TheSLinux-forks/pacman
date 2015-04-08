@@ -1,7 +1,7 @@
 /*
  *  package.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2006 by David Kimpe <dnaku@frugalware.org>
@@ -102,18 +102,6 @@ struct __alpm_pkg_t {
 	off_t isize;
 	off_t download_size;
 
-	int scriptlet;
-
-	alpm_pkgreason_t reason;
-	alpm_pkgvalidation_t validation;
-	alpm_dbinfrq_t infolevel;
-	alpm_pkgfrom_t origin;
-	/* origin == PKG_FROM_FILE, use pkg->origin_data.file
-	 * origin == PKG_FROM_*DB, use pkg->origin_data.db */
-	union {
-		alpm_db_t *db;
-		char *file;
-	} origin_data;
 	alpm_handle_t *handle;
 
 	alpm_list_t *licenses;
@@ -131,6 +119,19 @@ struct __alpm_pkg_t {
 	struct pkg_operations *ops;
 
 	alpm_filelist_t files;
+
+	/* origin == PKG_FROM_FILE, use pkg->origin_data.file
+	 * origin == PKG_FROM_*DB, use pkg->origin_data.db */
+	union {
+		alpm_db_t *db;
+		char *file;
+	} origin_data;
+
+	alpm_dbinfrq_t infolevel;
+	alpm_pkgvalidation_t validation;
+	alpm_pkgfrom_t origin;
+	alpm_pkgreason_t reason;
+	int scriptlet;
 };
 
 alpm_file_t *_alpm_file_copy(alpm_file_t *dest, const alpm_file_t *src);
@@ -148,8 +149,7 @@ alpm_pkg_t *_alpm_pkg_load_internal(alpm_handle_t *handle,
 
 int _alpm_pkg_cmp(const void *p1, const void *p2);
 int _alpm_pkg_compare_versions(alpm_pkg_t *local_pkg, alpm_pkg_t *pkg);
-int _alpm_pkg_should_ignore(alpm_handle_t *handle, alpm_pkg_t *pkg);
 
 #endif /* _ALPM_PACKAGE_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

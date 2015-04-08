@@ -1,7 +1,7 @@
 /*
  *  check.c
  *
- *  Copyright (c) 2012-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2012-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -26,18 +26,23 @@
 #include "conf.h"
 #include "util.h"
 
-static int check_file_exists(const char *pkgname, const char * filepath,
-		struct stat * st)
+static int check_file_exists(const char *pkgname, char *filepath, size_t rootlen,
+		struct stat *st)
 {
 	/* use lstat to prevent errors from symlinks */
-	if(lstat(filepath, st) != 0) {
-		if(config->quiet) {
-			printf("%s %s\n", pkgname, filepath);
+	if(llstat(filepath, st) != 0) {
+		if(alpm_option_match_noextract(config->handle, filepath + rootlen) == 0) {
+			/* NoExtract */
+			return -1;
 		} else {
-			pm_printf(ALPM_LOG_WARNING, "%s: %s (%s)\n",
-					pkgname, filepath, strerror(errno));
+			if(config->quiet) {
+				printf("%s %s\n", pkgname, filepath);
+			} else {
+				pm_printf(ALPM_LOG_WARNING, "%s: %s (%s)\n",
+						pkgname, filepath, strerror(errno));
+			}
+			return 1;
 		}
-		return 1;
 	}
 
 	return 0;
@@ -102,9 +107,18 @@ static int check_file_permissions(const char *pkgname, const char *filepath,
 }
 
 static int check_file_time(const char *pkgname, const char *filepath,
-		struct stat *st, struct archive_entry *entry)
+		struct stat *st, struct archive_entry *entry, int backup)
 {
 	if(st->st_mtime != archive_entry_mtime(entry)) {
+		if(backup) {
+			if(!config->quiet) {
+				printf("%s%s%s: ", config->colstr.title, _("backup file"),
+						config->colstr.nocolor);
+				printf(_("%s: %s (Modification time mismatch)\n"),
+						pkgname, filepath);
+			}
+			return 0;
+		}
 		if(!config->quiet) {
 			pm_printf(ALPM_LOG_WARNING, _("%s: %s (Modification time mismatch)\n"),
 					pkgname, filepath);
@@ -140,9 +154,18 @@ static int check_file_link(const char *pkgname, const char *filepath,
 }
 
 static int check_file_size(const char *pkgname, const char *filepath,
-		struct stat *st, struct archive_entry *entry)
+		struct stat *st, struct archive_entry *entry, int backup)
 {
 	if(st->st_size != archive_entry_size(entry)) {
+		if(backup) {
+			if(!config->quiet) {
+				printf("%s%s%s: ", config->colstr.title, _("backup file"),
+						config->colstr.nocolor);
+				printf(_("%s: %s (Size mismatch)\n"),
+						pkgname, filepath);
+			}
+			return 0;
+		}
 		if(!config->quiet) {
 			pm_printf(ALPM_LOG_WARNING, _("%s: %s (Size mismatch)\n"),
 					pkgname, filepath);
@@ -155,13 +178,13 @@ static int check_file_size(const char *pkgname, const char *filepath,
 
 /* placeholders - libarchive currently does not read checksums from mtree files
 static int check_file_md5sum(const char *pkgname, const char *filepath,
-		struct stat *st, struct archive_entry *entry)
+		struct stat *st, struct archive_entry *entry, int backup)
 {
 	return 0;
 }
 
 static int check_file_sha256sum(const char *pkgname, const char *filepath,
-		struct stat *st, struct archive_entry *entry)
+		struct stat *st, struct archive_entry *entry, int backup)
 {
 	return 0;
 }
@@ -191,15 +214,28 @@ int check_pkg_fast(alpm_pkg_t *pkg)
 	for(i = 0; i < filelist->count; i++) {
 		const alpm_file_t *file = filelist->files + i;
 		struct stat st;
+		int exists;
 		const char *path = file->name;
+		size_t plen = strlen(path);
 
-		if(rootlen + 1 + strlen(path) > PATH_MAX) {
+		if(rootlen + 1 + plen > PATH_MAX) {
 			pm_printf(ALPM_LOG_WARNING, _("path too long: %s%s\n"), root, path);
 			continue;
 		}
 		strcpy(filepath + rootlen, path);
 
-		errors += check_file_exists(pkgname, filepath, &st);
+		exists = check_file_exists(pkgname, filepath, rootlen, &st);
+		if(exists == 0) {
+			int expect_dir = path[plen - 1] == '/' ? 1 : 0;
+			int is_dir = S_ISDIR(st.st_mode) ? 1 : 0;
+			if(expect_dir != is_dir) {
+				pm_printf(ALPM_LOG_WARNING, _("%s: %s (File type mismatch)\n"),
+						pkgname, filepath);
+				++errors;
+			}
+		} else if(exists == 1) {
+			++errors;
+		}
 	}
 
 	if(!config->quiet) {
@@ -222,6 +258,7 @@ int check_pkg_full(alpm_pkg_t *pkg)
 	struct archive *mtree;
 	struct archive_entry *entry = NULL;
 	size_t file_count = 0;
+	const alpm_list_t *lp;
 
 	root = alpm_option_get_root(config->handle);
 	rootlen = strlen(root);
@@ -247,6 +284,8 @@ int check_pkg_full(alpm_pkg_t *pkg)
 		const char *path = archive_entry_pathname(entry);
 		mode_t type;
 		size_t file_errors = 0;
+		int backup = 0;
+		int exists;
 
 		/* strip leading "./" from path entries */
 		if(path[0] == '.' && path[1] == '/') {
@@ -279,8 +318,12 @@ int check_pkg_full(alpm_pkg_t *pkg)
 		}
 		strcpy(filepath + rootlen, path);
 
-		if(check_file_exists(pkgname, filepath, &st) == 1) {
+		exists = check_file_exists(pkgname, filepath, rootlen, &st);
+		if(exists == 1) {
 			errors++;
+			continue;
+		} else if(exists == -1) {
+			/* NoExtract */
 			continue;
 		}
 
@@ -298,19 +341,30 @@ int check_pkg_full(alpm_pkg_t *pkg)
 
 		file_errors += check_file_permissions(pkgname, filepath, &st, entry);
 
-		if(type != AE_IFDIR) {
-			/* file or symbolic link */
-			file_errors += check_file_time(pkgname, filepath, &st, entry);
-		}
-
 		if(type == AE_IFLNK) {
 			file_errors += check_file_link(pkgname, filepath, &st, entry);
 		}
 
+		/* the following checks are expected to fail if a backup file has been
+		   modified */
+		for(lp = alpm_pkg_get_backup(pkg); lp; lp = lp->next) {
+			alpm_backup_t *bl = lp->data;
+
+			if(strcmp(path, bl->name) == 0) {
+				backup = 1;
+				break;
+			}
+		}
+
+		if(type != AE_IFDIR) {
+			/* file or symbolic link */
+			file_errors += check_file_time(pkgname, filepath, &st, entry, backup);
+		}
+
 		if(type == AE_IFREG) {
 			/* TODO: these are expected to be changed with backup files */
-			file_errors += check_file_size(pkgname, filepath, &st, entry);
-			/* file_errors += check_file_md5sum(pkgname, filepath, &st, entry); */
+			file_errors += check_file_size(pkgname, filepath, &st, entry, backup);
+			/* file_errors += check_file_md5sum(pkgname, filepath, &st, entry, backup); */
 		}
 
 		if(config->quiet && file_errors) {
@@ -332,4 +386,4 @@ int check_pkg_full(alpm_pkg_t *pkg)
 	return (errors != 0 ? 1 : 0);
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

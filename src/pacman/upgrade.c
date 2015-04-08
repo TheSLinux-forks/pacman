@@ -1,7 +1,7 @@
 /*
  *  upgrade.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -39,19 +39,25 @@
  */
 int pacman_upgrade(alpm_list_t *targets)
 {
-	int retval = 0;
-	alpm_list_t *i, *remote = NULL;
+	int retval = 0, *file_is_remote;
+	alpm_list_t *i;
+	unsigned int n, num_targets;
 
 	if(targets == NULL) {
 		pm_printf(ALPM_LOG_ERROR, _("no targets specified (use -h for help)\n"));
 		return 1;
 	}
 
-	/* Check for URL targets and process them
-	 */
-	for(i = targets; i; i = alpm_list_next(i)) {
-		int *r = malloc(sizeof(int));
+	num_targets = alpm_list_count(targets);
 
+	/* Check for URL targets and process them */
+	file_is_remote = malloc(num_targets * sizeof(int));
+	if(file_is_remote == NULL) {
+		pm_printf(ALPM_LOG_ERROR, _("memory exhausted\n"));
+		return 1;
+	}
+
+	for(i = targets, n = 0; i; i = alpm_list_next(i), n++) {
 		if(strstr(i->data, "://")) {
 			char *str = alpm_fetch_pkgurl(config->handle, i->data);
 			if(str == NULL) {
@@ -61,32 +67,31 @@ int pacman_upgrade(alpm_list_t *targets)
 			} else {
 				free(i->data);
 				i->data = str;
-				*r = 1;
+				file_is_remote[n] = 1;
 			}
 		} else {
-			*r = 0;
+			file_is_remote[n] = 0;
 		}
-
-		remote = alpm_list_add(remote, r);
 	}
 
 	if(retval) {
-		return retval;
+		goto fail_free;
 	}
 
 	/* Step 1: create a new transaction */
 	if(trans_init(config->flags, 1) == -1) {
-		return 1;
+		retval = 1;
+		goto fail_free;
 	}
 
 	printf(_("loading packages...\n"));
 	/* add targets to the created transaction */
-	for(i = targets; i; i = alpm_list_next(i), remote = alpm_list_next(remote)) {
+	for(i = targets, n = 0; i; i = alpm_list_next(i), n++) {
 		const char *targ = i->data;
 		alpm_pkg_t *pkg;
 		alpm_siglevel_t level;
 
-		if(*(int *)remote->data) {
+		if(file_is_remote[n]) {
 			level = alpm_option_get_remote_file_siglevel(config->handle);
 		} else {
 			level = alpm_option_get_local_file_siglevel(config->handle);
@@ -108,15 +113,21 @@ int pacman_upgrade(alpm_list_t *targets)
 		config->explicit_adds = alpm_list_add(config->explicit_adds, pkg);
 	}
 
-	FREELIST(remote);
-
 	if(retval) {
-		trans_release();
-		return retval;
+		goto fail_release;
 	}
+
+	free(file_is_remote);
 
 	/* now that targets are resolved, we can hand it all off to the sync code */
 	return sync_prepare_execute();
+
+fail_release:
+	trans_release();
+fail_free:
+	free(file_is_remote);
+
+	return retval;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

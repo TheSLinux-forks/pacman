@@ -41,13 +41,13 @@ AC_PREREQ(2.62)
 #   Bugfix releases:
 #     pacman_version_micro += 1
 
-m4_define([lib_current], [8])
-m4_define([lib_revision], [0])
+m4_define([lib_current], [9])
+m4_define([lib_revision], [1])
 m4_define([lib_age], [0])
 
 m4_define([pacman_version_major], [4])
-m4_define([pacman_version_minor], [1])
-m4_define([pacman_version_micro], [0])
+m4_define([pacman_version_minor], [2])
+m4_define([pacman_version_micro], [1])
 m4_define([pacman_version],
           [pacman_version_major.pacman_version_minor.pacman_version_micro])
 
@@ -57,9 +57,10 @@ AC_CONFIG_SRCDIR([config.h.in])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
+AC_REQUIRE_AUX_FILE([tap-driver.sh])
 
 AC_CANONICAL_HOST
-AM_INIT_AUTOMAKE([1.11])
+AM_INIT_AUTOMAKE([1.11 foreign])
 AM_SILENT_RULES([yes])
 
 LT_INIT
@@ -96,6 +97,11 @@ AC_ARG_WITH(src-ext,
 AC_ARG_WITH(buildscript,
 	AS_HELP_STRING([--with-buildscript=name], [set the build script name used by makepkg]),
 	[BUILDSCRIPT=$withval], [BUILDSCRIPT=PKGBUILD])
+
+# Help line for buildscript filename
+AC_ARG_WITH(makepkg-template-dir,
+	AS_HELP_STRING([--with-makepkg-template-dir=name], [set the template dir used by makepkg-template]),
+	[TEMPLATE_DIR=$withval], [TEMPLATE_DIR=/usr/share/makepkg-template])
 
 # Help line for debug package suffix
 AC_ARG_WITH(debug-suffix,
@@ -163,8 +169,18 @@ AC_SYS_LARGEFILE
 AC_PROG_AWK
 AC_PROG_CC_C99
 AC_PROG_INSTALL
-AC_CHECK_PROGS([PYTHON], [python2.7 python2.6 python2.5 python2 python], [false])
+AC_CHECK_PROGS([PYTHON], [python2.7 python2 python], [false])
 AC_PATH_PROGS([BASH_SHELL], [bash bash4], [false])
+
+# check for perl 5.10.1 (needed by makepkg-template)
+AC_PATH_PROG([PERL],[perl])
+AC_DEFUN([AX_PROG_PERL_VERSION],
+	[AC_CACHE_CHECK([for Perl version $1 or later], [ax_cv_prog_perl_version],
+		[AS_IF(["$PERL" -e 'require v$1;' >/dev/null 2>&1],
+			[ax_cv_prog_perl_version=yes],
+			[ax_cv_prog_perl_version=no])])
+	AS_IF([test x"$ax_cv_prog_perl_version" = xyes], [$2], [$3])])
+AX_PROG_PERL_VERSION([5.10.1], [], [AC_MSG_ERROR([perl is too old])])
 
 AS_IF([test "x$BASH_SHELL" = "xfalse"],
 	AC_MSG_WARN([*** bash >= 4.1.0 is required for pacman scripts]),
@@ -300,11 +316,11 @@ AC_CHECK_MEMBERS([struct statfs.f_flags],,,[[#include <sys/param.h>
 
 # Check if we can use symbol visibility support in GCC
 GCC_VISIBILITY_CC
-# Check if we have -fgnu89-inline flag
-GCC_GNU89_INLINE_CC
 
 # Host-dependant definitions
 INODECMD="stat -c '%i %n'"
+OWNERCMD="stat -c '%u:%g'"
+MODECMD="stat -c '%a'"
 SIZECMD="stat -c %s"
 SEDINPLACE="sed --follow-symlinks -i"
 DUFLAGS="-sk --apparent-size"
@@ -313,14 +329,18 @@ STRIP_SHARED="--strip-unneeded"
 STRIP_STATIC="--strip-debug"
 case "${host_os}" in
 	*bsd*)
-		INODECMD="stat -f '%i %n'"
+		INODECMD="stat -f '%i %N'"
+		OWNERCMD="stat -f '%u:%g'"
+		MODECMD="stat -f '%Lp'"
 		SIZECMD="stat -f %z"
 		SEDINPLACE="sed -i \"\""
 		DUFLAGS="-sk"
 		;;
 	darwin*)
 		host_os_darwin=yes
-		INODECMD="/usr/bin/stat -f '%i %n'"
+		INODECMD="/usr/bin/stat -f '%i %N'"
+		OWNERCMD="/usr/bin/stat -f '%u:%g'"
+		MODECMD="/usr/bin/stat -f '%Lp'"
 		SIZECMD="/usr/bin/stat -f %z"
 		SEDINPLACE="/usr/bin/sed -i ''"
 		DUFLAGS="-sk"
@@ -333,6 +353,8 @@ esac
 AM_CONDITIONAL([DARWIN], test "x$host_os_darwin" = "xyes")
 AC_PATH_PROGS([DUPATH], [du], [du], [/usr/bin$PATH_SEPARATOR/bin] )
 AC_SUBST(INODECMD)
+AC_SUBST(OWNERCMD)
+AC_SUBST(MODECMD)
 AC_SUBST(SIZECMD)
 AC_SUBST(SEDINPLACE)
 AC_SUBST(DUFLAGS)
@@ -457,6 +479,9 @@ AC_DEFINE_UNQUOTED([SRCEXT], "$SRCEXT", [The file extension used by pacman sourc
 # Set makepkg build script name
 AC_SUBST(BUILDSCRIPT)
 AC_DEFINE_UNQUOTED([BUILDSCRIPT], "$BUILDSCRIPT", [The build script name used by makepkg])
+# Set makepkg-template template directory
+AC_SUBST(TEMPLATE_DIR)
+AC_DEFINE_UNQUOTED([TEMPLATE_DIR], "$TEMPLATE_DIR", [The template directory used by makepkg-teplate])
 # Set makepkg split debugging symbol package suffix
 AC_SUBST(DEBUGSUFFIX)
 AC_DEFINE_UNQUOTED([DEBUGSUFFIX], "$DEBUGSUFFIX", [The suffix for debugging symbol packages used by makepkg])
@@ -511,6 +536,8 @@ ${PACKAGE_NAME}:
     Architecture           : ${CARCH}
     Host Type              : ${CHOST}
     File inode command     : ${INODECMD}
+    File owner command     : ${OWNERCMD}
+    File mode command      : ${MODECMD}
     Filesize command       : ${SIZECMD}
     In-place sed command   : ${SEDINPLACE}
 
@@ -524,6 +551,7 @@ ${PACKAGE_NAME}:
     package extension      : ${PKGEXT}
     source pkg extension   : ${SRCEXT}
     build script name      : ${BUILDSCRIPT}
+    template directory     : ${TEMPLATE_DIR}
 
   Compilation options:
     Use libcurl            : ${have_libcurl}
@@ -536,4 +564,4 @@ ${PACKAGE_NAME}:
     use git version        : ${wantgitver}
 "
 
-# vim:set ts=2 sw=2 noet:
+# vim:set noet:

@@ -1,12 +1,12 @@
 bacman
 bash_completion
+checkupdates
 paccache
 pacdiff
 paclist
 paclog-pkglist
 pacscripts
 pacsearch
-pacsysclean
 rankmirrors
 updpkgsums
 zsh_completion

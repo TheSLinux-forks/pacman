@@ -1,7 +1,5 @@
-#! /usr/bin/python2
-#
 #  Copyright (c) 2006 by Aurelien Foret <orelien@chez.com>
-#  Copyright (c) 2006-2013 Pacman Developmet Team <pacman-dev@archlinux.org>
+#  Copyright (c) 2006-2014 Pacman Developmet Team <pacman-dev@archlinux.org>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -20,6 +18,7 @@
 import os
 
 import pmtest
+import tap
 
 
 class pmenv(object):
@@ -35,7 +34,8 @@ class pmenv(object):
     def __init__(self, root = "root"):
         self.root = os.path.abspath(root)
         self.pacman = {
-            "bin": "pacman",
+            "bin": None,
+            "bindir": ["/usr/bin/"],
             "debug": 0,
             "gdb": 0,
             "valgrind": 0,
@@ -52,98 +52,22 @@ class pmenv(object):
         """
         if not os.path.isfile(testcase):
             raise IOError("test file %s not found" % testcase)
-        test = pmtest.pmtest(testcase, self.root)
-        self.testcases.append(test)
+        self.testcases.append(testcase)
 
     def run(self):
         """
         """
-
-        for t in self.testcases:
-            print "=========="*8
-            print "Running '%s'" % t.testname
+        tap.plan(len(self.testcases))
+        for testcase in self.testcases:
+            t = pmtest.pmtest(testcase, self.root)
+            tap.diag("Running '%s'" % t.testname)
 
             t.load()
-            print t.description
-            print "----------"*8
-
             t.generate(self.pacman)
-
             t.run(self.pacman)
 
-            t.check()
-            print "==> Test result"
-            if t.result["fail"] == 0:
-                print "\tPASS"
-            else:
-                print "\tFAIL"
-            print
-
-    def results(self):
-        """
-        """
-        tpassed = []
-        tfailed = []
-        texpectedfail = []
-        tunexpectedpass = []
-        for test in self.testcases:
-            fail = test.result["fail"]
-            if fail == 0 and not test.expectfailure:
-                self.passed += 1
-                tpassed.append(test)
-            elif fail != 0 and test.expectfailure:
-                self.expectedfail += 1
-                texpectedfail.append(test)
-            elif fail == 0: # and not test.expectfail
-                self.unexpectedpass += 1
-                tunexpectedpass.append(test)
-            else:
-                self.failed += 1
-                tfailed.append(test)
-
-        def _printtest(t):
-            success = t.result["success"]
-            fail = t.result["fail"]
-            rules = len(t.rules)
-            if fail == 0:
-                result = "[PASS]"
-            else:
-                result = "[FAIL]"
-            print result,
-            print "%s Rules: OK = %2u  FAIL = %2u  SKIP = %2u" \
-                    % (t.testname.ljust(34), success, fail, \
-                       rules - (success + fail))
-            if fail != 0:
-                # print test description if test failed
-                print "      ", t.description
-
-        print "=========="*8
-        print "Results"
-        print "----------"*8
-        print " Passed:"
-        for test in tpassed:
-            _printtest(test)
-        print "----------"*8
-        print " Expected Failures:"
-        for test in texpectedfail:
-            _printtest(test)
-        print "----------"*8
-        print " Unexpected Passes:"
-        for test in tunexpectedpass:
-            _printtest(test)
-        print "----------"*8
-        print " Failed:"
-        for test in tfailed:
-            _printtest(test)
-        print "----------"*8
-
-        total = len(self.testcases)
-        print "Total            = %3u" % total
-        if total:
-            print "Pass             = %3u (%6.2f%%)" % (self.passed, float(self.passed) * 100 / total)
-            print "Expected Fail    = %3u (%6.2f%%)" % (self.expectedfail, float(self.expectedfail) * 100 / total)
-            print "Unexpected Pass  = %3u (%6.2f%%)" % (self.unexpectedpass, float(self.unexpectedpass) * 100 / total)
-            print "Fail             = %3u (%6.2f%%)" % (self.failed, float(self.failed) * 100 / total)
-        print ""
+            tap.diag("==> Checking rules")
+            tap.todo = t.expectfailure
+            tap.subtest(lambda: t.check(), t.description)
 
 # vim: set ts=4 sw=4 et:

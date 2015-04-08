@@ -45,13 +45,14 @@ NOTE: Each directive must be in CamelCase. If the case isn't respected, the
 directive won't be recognized. For example. noupgrade or NOUPGRADE will not
 work.
 
+
 Options
 -------
 *RootDir =* path/to/root::
 	Set the default root directory for pacman to install to. This option is
 	used if you want to install a package on a temporary mounted partition
 	which is "owned" by another system, or for a chroot install.
-	*NOTE*: If database path or logfile are not specified on either the
+	*NOTE*: If database path or log file are not specified on either the
 	command line or in linkman:pacman.conf[5], their default location will
 	be inside this root path.
 
@@ -99,15 +100,15 @@ Options
 	allowed.
 
 *Include =* path::
-	Include another config file. This file can include repositories or
+	Include another configuration file. This file can include repositories or
 	general configuration options. Wildcards in the specified paths will get
 	expanded based on linkman:glob[7] rules.
 
 *Architecture =* auto | i686 | x86_64 | ...::
 	If set, pacman will only allow installation of packages of the given
 	architecture (e.g. 'i686', 'x86_64', etc). The special value 'auto' will
-	use the system architecture, provided by in ``uname -m''.  If unset, no
-	architecture checks are made. *NOTE*: packages with the special
+	use the system architecture, provided via ``uname -m''. If unset, no
+	architecture checks are made. *NOTE*: Packages with the special
 	architecture 'any' can always be installed, as they are meant to be
 	architecture independent.
 
@@ -119,7 +120,7 @@ Options
 	properly.
 	+
 	This option is useful for users who experience problems with built-in
-	http/ftp support, or need the more advanced proxy support that comes with
+	HTTP/FTP support, or need the more advanced proxy support that comes with
 	utilities like wget.
 
 *NoUpgrade =* file ...::
@@ -128,7 +129,10 @@ Options
 	'.pacnew' extension.
 	These files refer to files in the package archive, so do not include the
 	leading slash (the RootDir) when specifying them. Shell-style glob patterns
-	are allowed.
+	are allowed. It is possible to invert matches by prepending a file with
+	an exclamation mark. Inverted files will result in previously blacklisted
+	files being whitelisted again. Subsequent matches will override previous
+	ones. A leading literal exclamation mark or backslash needs to be escaped.
 
 *NoExtract =* file ...::
 	All files listed with a `NoExtract` directive will never be extracted from
@@ -138,7 +142,10 @@ Options
 	from the 'apache' package.
 	These files refer to files in the package archive, so do not include the
 	leading slash (the RootDir) when specifying them. Shell-style glob patterns
-	are allowed.
+	are allowed. It is possible to invert matches by prepending a file with
+	an exclamation mark. Inverted files will result in previously blacklisted
+	files being whitelisted again. Subsequent matches will override previous
+	ones. A leading literal exclamation mark or backslash needs to be escaped.
 
 *CleanMethod =* KeepInstalled &| KeepCurrent::
 	If set to `KeepInstalled` (the default), the '-Sc' operation will clean
@@ -183,6 +190,7 @@ Options
 	and completed percentage of the entire download list rather
 	than the percent of each individual download target. The progress
 	bar is still based solely on the current file download.
+	This option won't work if XferCommand is used.
 
 *CheckSpace*::
 	Performs an approximate check for adequate available disk space before
@@ -192,14 +200,16 @@ Options
 	Displays name, version and size of target packages formatted
 	as a table for upgrade, sync and remove operations.
 
+
 Repository Sections
 -------------------
 Each repository section defines a section name and at least one location where
 the packages can be found. The section name is defined by the string within
-square brackets (the two above are 'current'  and  'custom'). Locations are
-defined with the 'Server' directive and follow a URL naming structure. If you
-want to use a local directory, you can specify the full path with a ``file://''
-prefix, as shown above.
+square brackets (the two above are 'core'  and  'custom'). Repository names
+must be unique and the name 'local' is reserved for the database of installed
+packages. Locations are defined with the 'Server' directive and follow a URL
+naming structure. If you want to use a local directory, you can specify the
+full path with a ``file://'' prefix, as shown above.
 
 A common way to define DB locations utilizes the 'Include' directive. For each
 repository defined in the configuration file, a single 'Include' directive can
@@ -236,6 +246,27 @@ even be used for different architectures.
 *SigLevel =* ...::
 	Set the signature verification level for this repository. For more
 	information, see <<SC,Package and Database Signature Checking>> below.
+
+*Usage =* ...::
+	Set the usage level for this repository. This option takes a list of tokens
+	which must be at least one of the following:
+		*Sync*;;
+			Enables refreshes for this repository.
+		*Search*;;
+			Enables searching for this repository.
+		*Install*;;
+			Enables installation of packages from this repository during a '\--sync'
+			operation.
+		*Upgrade*;;
+			Allows this repository to be a valid source of packages when performing
+			a '\--sysupgrade'.
+		*All*;;
+			Enables all of the above features for the repository. This is the default
+			if not specified.
++
+Note that an enabled repository can be operated on explicitly, regardless of the Usage
+level set.
+
 
 Package and Database Signature Checking[[SC]]
 ---------------------------------------------
@@ -299,6 +330,7 @@ The built-in default is the following:
 --------
 SigLevel = Optional TrustedOnly
 --------
+
 
 Using Your Own Repository
 -------------------------

@@ -1,7 +1,7 @@
 /*
  *  download.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -132,7 +132,9 @@ static int dload_progress_cb(void *file, double dltotal, double dlnow,
 		payload->handle->dlcb(payload->remote_name, 0, (off_t)dltotal);
 	}
 
-	payload->handle->dlcb(payload->remote_name, current_size, total_size);
+	/* do NOT include initial_size since it wasn't part of the package's
+	 * download_size (nor included in the total download size callback) */
+	payload->handle->dlcb(payload->remote_name, (off_t)dlnow, (off_t)dltotal);
 
 	payload->prevprogress = current_size;
 
@@ -323,6 +325,7 @@ static void curl_set_handle_opts(struct dload_payload *payload,
 	curl_easy_setopt(curl, CURLOPT_NETRC, CURL_NETRC_OPTIONAL);
 	curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, dload_sockopt_cb);
 	curl_easy_setopt(curl, CURLOPT_SOCKOPTDATA, (void *)handle);
+	curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_ANY);
 
 	_alpm_log(handle, ALPM_LOG_DEBUG, "url: %s\n", payload->fileurl);
 
@@ -388,7 +391,7 @@ static FILE *create_tempfile(struct dload_payload *payload, const char *localpat
 			fchmod(fd, ~(_getumask()) & 0666) ||
 			!(fp = fdopen(fd, payload->tempfile_openmode))) {
 		unlink(randpath);
-		CLOSE(fd);
+		close(fd);
 		_alpm_log(payload->handle, ALPM_LOG_ERROR,
 				_("failed to create temporary file for download\n"));
 		free(randpath);
@@ -408,7 +411,7 @@ static FILE *create_tempfile(struct dload_payload *payload, const char *localpat
 #define HOSTNAME_SIZE 256
 
 static int curl_download_internal(struct dload_payload *payload,
-		const char *localpath, char **final_file, char **final_url)
+		const char *localpath, char **final_file, const char **final_url)
 {
 	int ret = -1;
 	FILE *localf = NULL;
@@ -487,8 +490,8 @@ static int curl_download_internal(struct dload_payload *payload,
 			payload->curlerr);
 
 	/* disconnect relationships from the curl handle for things that might go out
-	 * of scope, but could still be touched on connection teardown.  This really
-	 * only applies to FTP transfers. See FS#26327 for an example. */
+	 * of scope, but could still be touched on connection teardown. This really
+	 * only applies to FTP transfers. */
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, (char *)NULL);
 
@@ -499,12 +502,14 @@ static int curl_download_internal(struct dload_payload *payload,
 			_alpm_log(handle, ALPM_LOG_DEBUG, "response code: %ld\n", payload->respcode);
 			if(payload->respcode >= 400) {
 				payload->unlink_on_fail = 1;
-				/* non-translated message is same as libcurl */
-				snprintf(error_buffer, sizeof(error_buffer),
-						"The requested URL returned error: %ld", payload->respcode);
-				_alpm_log(handle, ALPM_LOG_ERROR,
-						_("failed retrieving file '%s' from %s : %s\n"),
-						payload->remote_name, hostname, error_buffer);
+				if(!payload->errors_ok) {
+					/* non-translated message is same as libcurl */
+					snprintf(error_buffer, sizeof(error_buffer),
+							"The requested URL returned error: %ld", payload->respcode);
+					_alpm_log(handle, ALPM_LOG_ERROR,
+							_("failed retrieving file '%s' from %s : %s\n"),
+							payload->remote_name, hostname, error_buffer);
+				}
 				goto cleanup;
 			}
 			break;
@@ -512,12 +517,11 @@ static int curl_download_internal(struct dload_payload *payload,
 			/* handle the interrupt accordingly */
 			if(dload_interrupted == ABORT_OVER_MAXFILESIZE) {
 				payload->curlerr = CURLE_FILESIZE_EXCEEDED;
+				payload->unlink_on_fail = 1;
 				handle->pm_errno = ALPM_ERR_LIBCURL;
-				/* use the 'size exceeded' message from libcurl */
 				_alpm_log(handle, ALPM_LOG_ERROR,
-						_("failed retrieving file '%s' from %s : %s\n"),
-						payload->remote_name, hostname,
-						curl_easy_strerror(CURLE_FILESIZE_EXCEEDED));
+						_("failed retrieving file '%s' from %s : expected download size exceeded\n"),
+						payload->remote_name, hostname);
 			}
 			goto cleanup;
 		default:
@@ -569,29 +573,26 @@ static int curl_download_internal(struct dload_payload *payload,
 		goto cleanup;
 	}
 
-	if(payload->content_disp_name) {
-		/* content-disposition header has a better name for our file */
-		free(payload->destfile_name);
-		payload->destfile_name = get_fullpath(localpath, payload->content_disp_name, "");
-	} else {
-		const char *effective_filename = strrchr(effective_url, '/');
-		if(effective_filename && strlen(effective_filename) > 2) {
-			effective_filename++;
+	if(payload->trust_remote_name) {
+		if(payload->content_disp_name) {
+			/* content-disposition header has a better name for our file */
+			free(payload->destfile_name);
+			payload->destfile_name = get_fullpath(localpath, payload->content_disp_name, "");
+		} else {
+			const char *effective_filename = strrchr(effective_url, '/');
+			if(effective_filename && strlen(effective_filename) > 2) {
+				effective_filename++;
 
-			/* FIXME: handle the bad string after unescaping,
-			 * FIXME: by specifying the last argument of (curl_easy_unescape) */
-			char *effective_filename_unescaped = curl_easy_unescape(curl, effective_filename, strlen(effective_filename), NULL);
-			/* if destfile was never set, we wrote to a tempfile. even if destfile is
-			 * set, we may have followed some redirects and the effective url may
-			 * have a better suggestion as to what to name our file. in either case,
-			 * refactor destfile to this newly derived name. */
-			if(!payload->destfile_name || strcmp(effective_filename_unescaped,
-						strrchr(payload->destfile_name, '/') + 1) != 0) {
-				free(payload->destfile_name);
-				payload->destfile_name = get_fullpath(localpath, effective_filename_unescaped, "");
+				/* if destfile was never set, we wrote to a tempfile. even if destfile is
+				 * set, we may have followed some redirects and the effective url may
+				 * have a better suggestion as to what to name our file. in either case,
+				 * refactor destfile to this newly derived name. */
+				if(!payload->destfile_name || strcmp(effective_filename,
+							strrchr(payload->destfile_name, '/') + 1) != 0) {
+					free(payload->destfile_name);
+					payload->destfile_name = get_fullpath(localpath, effective_filename, "");
+				}
 			}
-
-			curl_free(effective_filename_unescaped);
 		}
 	}
 
@@ -644,7 +645,7 @@ cleanup:
  * @return 0 on success, -1 on error (pm_errno is set accordingly if errors_ok == 0)
  */
 int _alpm_download(struct dload_payload *payload, const char *localpath,
-		char **final_file, char **final_url)
+		char **final_file, const char **final_url)
 {
 	alpm_handle_t *handle = payload->handle;
 
@@ -652,6 +653,9 @@ int _alpm_download(struct dload_payload *payload, const char *localpath,
 #ifdef HAVE_LIBCURL
 		return curl_download_internal(payload, localpath, final_file, final_url);
 #else
+		/* work around unused warnings when building without libcurl */
+		(void)final_file;
+		(void)final_url;
 		RET_ERR(handle, ALPM_ERR_EXTERNAL_DOWNLOAD, -1);
 #endif
 	} else {
@@ -672,7 +676,7 @@ static char *filecache_find_url(alpm_handle_t *handle, const char *url)
 	}
 
 	filebase++;
-	if(filebase == '\0') {
+	if(*filebase == '\0') {
 		return NULL;
 	}
 
@@ -683,8 +687,8 @@ static char *filecache_find_url(alpm_handle_t *handle, const char *url)
 char SYMEXPORT *alpm_fetch_pkgurl(alpm_handle_t *handle, const char *url)
 {
 	char *filepath;
-	const char *cachedir;
-	char *final_file = NULL, *final_pkg_url = NULL;
+	const char *cachedir, *final_pkg_url = NULL;
+	char *final_file = NULL;
 	struct dload_payload payload;
 	int ret = 0;
 
@@ -702,6 +706,7 @@ char SYMEXPORT *alpm_fetch_pkgurl(alpm_handle_t *handle, const char *url)
 		STRDUP(payload.fileurl, url, RET_ERR(handle, ALPM_ERR_MEMORY, NULL));
 		payload.allow_resume = 1;
 		payload.handle = handle;
+		payload.trust_remote_name = 1;
 
 		/* download the file */
 		ret = _alpm_download(&payload, cachedir, &final_file, &final_pkg_url);
@@ -726,6 +731,7 @@ char SYMEXPORT *alpm_fetch_pkgurl(alpm_handle_t *handle, const char *url)
 		sig_filepath = filecache_find_url(handle, payload.fileurl);
 		if(sig_filepath == NULL) {
 			payload.handle = handle;
+			payload.trust_remote_name = 1;
 			payload.force = 1;
 			payload.errors_ok = (handle->siglevel & ALPM_SIG_PACKAGE_OPTIONAL);
 
@@ -769,4 +775,4 @@ void _alpm_dload_payload_reset(struct dload_payload *payload)
 	memset(payload, '\0', sizeof(*payload));
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

@@ -1,7 +1,7 @@
 /*
  *  conflict.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -25,14 +25,11 @@
 #include "package.h"
 
 alpm_conflict_t *_alpm_conflict_dup(const alpm_conflict_t *conflict);
-void _alpm_conflict_free(alpm_conflict_t *conflict);
 alpm_list_t *_alpm_innerconflicts(alpm_handle_t *handle, alpm_list_t *packages);
 alpm_list_t *_alpm_outerconflicts(alpm_db_t *db, alpm_list_t *packages);
 alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 		alpm_list_t *upgrade, alpm_list_t *remove);
 
-void _alpm_fileconflict_free(alpm_fileconflict_t *conflict);
-
 #endif /* _ALPM_CONFLICT_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

@@ -1,7 +1,7 @@
 /*
  *  db.h
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2006 by Miklos Vajna <vmiklos@frugalware.org>
@@ -32,13 +32,14 @@
 
 /* Database entries */
 typedef enum _alpm_dbinfrq_t {
-	INFRQ_BASE = 1,
+	INFRQ_BASE = (1 << 0),
 	INFRQ_DESC = (1 << 1),
 	INFRQ_FILES = (1 << 2),
 	INFRQ_SCRIPTLET = (1 << 3),
 	INFRQ_DSIZE = (1 << 4),
 	/* ALL should be info stored in the package or database */
-	INFRQ_ALL = 0x1F,
+	INFRQ_ALL = INFRQ_BASE | INFRQ_DESC | INFRQ_FILES |
+		INFRQ_SCRIPTLET | INFRQ_DSIZE,
 	INFRQ_ERROR = (1 << 31)
 } alpm_dbinfrq_t;
 
@@ -73,6 +74,7 @@ struct __alpm_db_t {
 	/* flags determining validity, local, loaded caches, etc. */
 	enum _alpm_dbstatus_t status;
 	alpm_siglevel_t siglevel;
+	alpm_db_usage_t usage;
 };
 
 
@@ -107,4 +109,4 @@ alpm_group_t *_alpm_db_get_groupfromcache(alpm_db_t *db, const char *target);
 
 #endif /* _ALPM_DB_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

@@ -1,7 +1,7 @@
 /*
  *  conflict.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2006 by David Kimpe <dnaku@frugalware.org>
@@ -62,7 +62,7 @@ static alpm_conflict_t *conflict_new(alpm_pkg_t *pkg1, alpm_pkg_t *pkg2,
 /**
  * @brief Free a conflict and its members.
  */
-void _alpm_conflict_free(alpm_conflict_t *conflict)
+void SYMEXPORT alpm_conflict_free(alpm_conflict_t *conflict)
 {
 	FREE(conflict->package2);
 	FREE(conflict->package1);
@@ -135,7 +135,7 @@ static int add_conflict(alpm_handle_t *handle, alpm_list_t **baddeps,
 				pkg1->name, pkg2->name, conflict_str);
 		free(conflict_str);
 	} else {
-		_alpm_conflict_free(conflict);
+		alpm_conflict_free(conflict);
 	}
 	return 0;
 }
@@ -290,7 +290,7 @@ error:
 /**
  * @brief Frees a conflict and its members.
  */
-void _alpm_fileconflict_free(alpm_fileconflict_t *conflict)
+void SYMEXPORT alpm_fileconflict_free(alpm_fileconflict_t *conflict)
 {
 	FREE(conflict->ctarget);
 	FREE(conflict->file);
@@ -299,95 +299,79 @@ void _alpm_fileconflict_free(alpm_fileconflict_t *conflict)
 }
 
 /**
- * @brief Recursively checks if a package owns all subdirectories and files in
- * a directory.
+ * @brief Recursively checks if a set of packages own all subdirectories and
+ * files in a directory.
  *
  * @param handle the context handle
  * @param dirpath path of the directory to check
- * @param pkg package being checked against
+ * @param pkgs packages being checked against
  *
- * @return 1 if a package owns all subdirectories and files or a directory
- * cannot be opened, 0 otherwise
+ * @return 1 if a package owns all subdirectories and files, 0 otherwise
  */
-static int dir_belongsto_pkg(alpm_handle_t *handle, const char *dirpath,
-		alpm_pkg_t *pkg)
+static int dir_belongsto_pkgs(alpm_handle_t *handle, const char *dirpath,
+		alpm_list_t *pkgs)
 {
-	alpm_list_t *i;
-	struct stat sbuf;
-	char path[PATH_MAX];
-	char abspath[PATH_MAX];
+	char path[PATH_MAX], full_path[PATH_MAX];
 	DIR *dir;
 	struct dirent *ent = NULL;
-	const char *root = handle->root;
 
-	/* check directory is actually in package - used for subdirectory checks */
-	_alpm_filelist_resolve(handle, alpm_pkg_get_files(pkg));
-	if(!alpm_filelist_contains(alpm_pkg_get_files(pkg), dirpath)) {
-		_alpm_log(handle, ALPM_LOG_DEBUG,
-				"directory %s not in package %s\n", dirpath, pkg->name);
-		return 0;
-	}
-
-	/* TODO: this is an overly strict check but currently pacman will not
-	 * overwrite a directory with a file (case 10/11 in add.c). Adjusting that
-	 * is not simple as even if the directory is being unowned by a conflicting
-	 * package, pacman does not sort this to ensure all required directory
-	 * "removals" happen before installation of file/symlink */
-
-	/* check that no other _installed_ package owns the directory */
-	for(i = _alpm_db_get_pkgcache(handle->db_local); i; i = i->next) {
-		if(pkg == i->data) {
-			continue;
-		}
-
-		_alpm_filelist_resolve(handle, alpm_pkg_get_files(i->data));
-		if(alpm_filelist_contains(alpm_pkg_get_files(i->data), dirpath)) {
-			_alpm_log(handle, ALPM_LOG_DEBUG,
-					"file %s also in package %s\n", dirpath,
-					((alpm_pkg_t*)i->data)->name);
-			return 0;
-		}
-	}
-
-	/* check all files in directory are owned by the package */
-	snprintf(abspath, PATH_MAX, "%s%s", root, dirpath);
-	dir = opendir(abspath);
+	snprintf(full_path, PATH_MAX, "%s%s", handle->root, dirpath);
+	dir = opendir(full_path);
 	if(dir == NULL) {
-		return 1;
+		return 0;
 	}
 
 	while((ent = readdir(dir)) != NULL) {
 		const char *name = ent->d_name;
+		int owned = 0, is_dir = 0;
+		alpm_list_t *i;
+		struct stat sbuf;
 
 		if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
 			continue;
 		}
-		snprintf(path, PATH_MAX, "%s%s", dirpath, name);
-		snprintf(abspath, PATH_MAX, "%s%s", root, path);
-		if(stat(abspath, &sbuf) != 0) {
-			continue;
+
+		snprintf(full_path, PATH_MAX, "%s%s%s", handle->root, dirpath, name);
+
+		if(lstat(full_path, &sbuf) != 0) {
+			_alpm_log(handle, ALPM_LOG_DEBUG, "could not stat %s\n", full_path);
+			closedir(dir);
+			return 0;
 		}
-		if(S_ISDIR(sbuf.st_mode)) {
-			if(dir_belongsto_pkg(handle, path, pkg)) {
-				continue;
-			} else {
-				closedir(dir);
-				return 0;
+		is_dir = S_ISDIR(sbuf.st_mode);
+
+		snprintf(path, PATH_MAX, "%s%s%s", dirpath, name, is_dir ? "/" : "");
+
+		for(i = pkgs; i && !owned; i = i->next) {
+			if(alpm_filelist_contains(alpm_pkg_get_files(i->data), path)) {
+				owned = 1;
 			}
-		} else {
-			_alpm_filelist_resolve(handle, alpm_pkg_get_files(pkg));
-			if(alpm_filelist_contains(alpm_pkg_get_files(pkg), path)) {
-				continue;
-			} else {
-				closedir(dir);
-				_alpm_log(handle, ALPM_LOG_DEBUG,
-						"unowned file %s found in directory\n", path);
-				return 0;
-			}
+		}
+
+		if(owned && is_dir) {
+			owned = dir_belongsto_pkgs(handle, path, pkgs);
+		}
+
+		if(!owned) {
+			closedir(dir);
+			_alpm_log(handle, ALPM_LOG_DEBUG,
+					"unowned file %s found in directory\n", path);
+			return 0;
 		}
 	}
 	closedir(dir);
 	return 1;
+}
+
+static alpm_list_t *alpm_db_find_file_owners(alpm_db_t* db, const char *path)
+{
+	alpm_list_t *i, *owners = NULL;
+	for(i = alpm_db_get_pkgcache(db); i; i = i->next) {
+		if(alpm_filelist_contains(alpm_pkg_get_files(i->data), path)) {
+			owners = alpm_list_add(owners, i->data);
+		}
+	}
+	return owners;
 }
 
 /**
@@ -416,11 +400,6 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 	}
 
 	rootlen = strlen(handle->root);
-
-	/* make sure all files to be installed have been resolved */
-	for(i = upgrade; i; i = i->next) {
-		_alpm_filelist_resolve(handle, alpm_pkg_get_files(i->data));
-	}
 
 	/* TODO this whole function needs a huge change, which hopefully will
 	 * be possible with real transactions. Right now we only do half as much
@@ -470,7 +449,9 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 
 					conflicts = add_fileconflict(handle, conflicts, path, p1, p2);
 					if(handle->pm_errno == ALPM_ERR_MEMORY) {
-						FREELIST(conflicts);
+						alpm_list_free_inner(conflicts,
+								(alpm_list_fn_free) alpm_conflict_free);
+						alpm_list_free(conflicts);
 						alpm_list_free(common_files);
 						return NULL;
 					}
@@ -491,7 +472,6 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 		 * be freed. */
 		if(dbpkg) {
 			/* older ver of package currently installed */
-			_alpm_filelist_resolve(handle, alpm_pkg_get_files(dbpkg));
 			tmpfiles = _alpm_filelist_difference(alpm_pkg_get_files(p1),
 					alpm_pkg_get_files(dbpkg));
 		} else {
@@ -499,7 +479,7 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 			alpm_filelist_t *fl = alpm_pkg_get_files(p1);
 			size_t filenum;
 			for(filenum = 0; filenum < fl->count; filenum++) {
-				tmpfiles = alpm_list_add(tmpfiles, fl->resolved_path[filenum]);
+				tmpfiles = alpm_list_add(tmpfiles, fl->files[filenum].name);
 			}
 		}
 
@@ -514,38 +494,47 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 			size_t pathlen;
 
 			pathlen = snprintf(path, PATH_MAX, "%s%s", handle->root, filestr);
+			relative_path = path + rootlen;
 
 			/* stat the file - if it exists, do some checks */
-			if(_alpm_lstat(path, &lsbuf) != 0) {
+			if(llstat(path, &lsbuf) != 0) {
 				continue;
 			}
 
 			_alpm_log(handle, ALPM_LOG_DEBUG, "checking possible conflict: %s\n", path);
 
-			if(filestr[strlen(filestr) - 1] == '/') {
-				struct stat sbuf;
+			if(path[pathlen - 1] == '/') {
 				if(S_ISDIR(lsbuf.st_mode)) {
 					_alpm_log(handle, ALPM_LOG_DEBUG, "file is a directory, not a conflict\n");
-					continue;
-				}
-				stat(path, &sbuf);
-				if(S_ISLNK(lsbuf.st_mode) && S_ISDIR(sbuf.st_mode)) {
-					_alpm_log(handle, ALPM_LOG_DEBUG,
-							"file is a symlink to a dir, hopefully not a conflict\n");
 					continue;
 				}
 				/* if we made it to here, we want all subsequent path comparisons to
 				 * not include the trailing slash. This allows things like file ->
 				 * directory replacements. */
 				path[pathlen - 1] = '\0';
-			}
 
-			relative_path = path + rootlen;
+				/* Check if the directory was a file in dbpkg */
+				if(alpm_filelist_contains(alpm_pkg_get_files(dbpkg), relative_path)) {
+					size_t fslen = strlen(filestr);
+					_alpm_log(handle, ALPM_LOG_DEBUG,
+							"replacing package file with a directory, not a conflict\n");
+					resolved_conflict = 1;
+
+					/* go ahead and skip any files inside filestr as they will
+					 * necessarily be resolved by replacing the file with a dir
+					 * NOTE: afterward, j will point to the last file inside filestr */
+					for( ; j->next; j = j->next) {
+						const char *filestr2 = j->next->data;
+						if(strncmp(filestr, filestr2, fslen) != 0) {
+							break;
+						}
+					}
+				}
+			}
 
 			/* Check remove list (will we remove the conflicting local file?) */
 			for(k = rem; k && !resolved_conflict; k = k->next) {
 				alpm_pkg_t *rempkg = k->data;
-				_alpm_filelist_resolve(handle, alpm_pkg_get_files(rempkg));
 				if(rempkg && alpm_filelist_contains(alpm_pkg_get_files(rempkg),
 							relative_path)) {
 					_alpm_log(handle, ALPM_LOG_DEBUG,
@@ -556,20 +545,21 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 
 			/* Look at all the targets to see if file has changed hands */
 			for(k = upgrade; k && !resolved_conflict; k = k->next) {
-				alpm_pkg_t *p2 = k->data;
-				if(!p2 || strcmp(p1->name, p2->name) == 0) {
+				alpm_pkg_t *localp2, *p2 = k->data;
+				if(!p2 || p1 == p2) {
+					/* skip p1; both p1 and p2 come directly from the upgrade list
+					 * so they can be compared directly */
 					continue;
 				}
-				alpm_pkg_t *localp2 = _alpm_db_get_pkgfromcache(handle->db_local, p2->name);
+				localp2 = _alpm_db_get_pkgfromcache(handle->db_local, p2->name);
 
 				/* localp2->files will be removed (target conflicts are handled by CHECK 1) */
-				_alpm_filelist_resolve(handle, alpm_pkg_get_files(localp2));
-				if(localp2 && alpm_filelist_contains(alpm_pkg_get_files(localp2), filestr)) {
+				if(localp2 && alpm_filelist_contains(alpm_pkg_get_files(localp2), relative_path)) {
 					/* skip removal of file, but not add. this will prevent a second
 					 * package from removing the file when it was already installed
 					 * by its new owner (whether the file is in backup array or not */
 					handle->trans->skip_remove =
-						alpm_list_add(handle->trans->skip_remove, strdup(filestr));
+						alpm_list_add(handle->trans->skip_remove, strdup(relative_path));
 					_alpm_log(handle, ALPM_LOG_DEBUG,
 							"file changed packages, adding to remove skiplist\n");
 					resolved_conflict = 1;
@@ -577,41 +567,42 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 			}
 
 			/* check if all files of the dir belong to the installed pkg */
-			if(!resolved_conflict && S_ISDIR(lsbuf.st_mode) && dbpkg) {
-				char *dir = malloc(strlen(filestr) + 2);
-				sprintf(dir, "%s/", filestr);
-				if(alpm_filelist_contains(alpm_pkg_get_files(dbpkg), dir)) {
-					_alpm_log(handle, ALPM_LOG_DEBUG,
-							"checking if all files in %s belong to %s\n",
-							dir, dbpkg->name);
-					resolved_conflict = dir_belongsto_pkg(handle, dir, dbpkg);
+			if(!resolved_conflict && S_ISDIR(lsbuf.st_mode)) {
+				alpm_list_t *owners;
+				char *dir = malloc(strlen(relative_path) + 2);
+				sprintf(dir, "%s/", relative_path);
+
+				owners = alpm_db_find_file_owners(handle->db_local, dir);
+				if(owners) {
+					alpm_list_t *pkgs = NULL, *diff;
+
+					if(dbpkg) {
+						pkgs = alpm_list_add(pkgs, dbpkg);
+					}
+					pkgs = alpm_list_join(pkgs, alpm_list_copy(rem));
+					if((diff = alpm_list_diff(owners, pkgs, _alpm_pkg_cmp))) {
+						/* dir is owned by files we aren't removing */
+						/* TODO: with better commit ordering, we may be able to check
+						 * against upgrades as well */
+						alpm_list_free(diff);
+					} else {
+						_alpm_log(handle, ALPM_LOG_DEBUG,
+								"checking if all files in %s belong to removed packages\n",
+								dir);
+						resolved_conflict = dir_belongsto_pkgs(handle, dir, owners);
+					}
+					alpm_list_free(pkgs);
+					alpm_list_free(owners);
 				}
 				free(dir);
 			}
 
-			/* check if a component of the filepath was a link. canonicalize the path
-			 * and look for it in the old package. note that the actual file under
-			 * consideration cannot itself be a link, as it might be unowned- path
-			 * components can be safely checked as all directories are "unowned". */
-			if(!resolved_conflict && dbpkg && !S_ISLNK(lsbuf.st_mode)) {
-				char rpath[PATH_MAX];
-				if(realpath(path, rpath)) {
-					const char *relative_rpath = rpath + rootlen;
-					if(alpm_filelist_contains(alpm_pkg_get_files(dbpkg), relative_rpath)) {
-						_alpm_log(handle, ALPM_LOG_DEBUG,
-								"package contained the resolved realpath\n");
-						resolved_conflict = 1;
-					}
-				}
-			}
-
 			/* is the file unowned and in the backup list of the new package? */
-			if(!resolved_conflict && _alpm_needbackup(filestr, p1)) {
+			if(!resolved_conflict && _alpm_needbackup(relative_path, p1)) {
 				alpm_list_t *local_pkgs = _alpm_db_get_pkgcache(handle->db_local);
 				int found = 0;
 				for(k = local_pkgs; k && !found; k = k->next) {
-					_alpm_filelist_resolve(handle, alpm_pkg_get_files(k->data));
-					if(alpm_filelist_contains(alpm_pkg_get_files(k->data), filestr)) {
+					if(alpm_filelist_contains(alpm_pkg_get_files(k->data), relative_path)) {
 							found = 1;
 					}
 				}
@@ -633,7 +624,9 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 			if(!resolved_conflict) {
 				conflicts = add_fileconflict(handle, conflicts, path, p1, NULL);
 				if(handle->pm_errno == ALPM_ERR_MEMORY) {
-					FREELIST(conflicts);
+					alpm_list_free_inner(conflicts,
+							(alpm_list_fn_free) alpm_conflict_free);
+					alpm_list_free(conflicts);
 					alpm_list_free(tmpfiles);
 					return NULL;
 				}
@@ -647,4 +640,4 @@ alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 	return conflicts;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

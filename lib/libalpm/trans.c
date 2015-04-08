@@ -1,7 +1,7 @@
 /*
  *  trans.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *  Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
  *  Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
@@ -39,6 +39,7 @@
 #include "remove.h"
 #include "sync.h"
 #include "alpm.h"
+#include "deps.h"
 
 /** \addtogroup alpm_trans Transaction Functions
  * @brief Functions to manipulate libalpm transactions
@@ -134,6 +135,21 @@ int SYMEXPORT alpm_trans_prepare(alpm_handle_t *handle, alpm_list_t **data)
 		}
 	}
 
+
+	if(!(trans->flags & ALPM_TRANS_FLAG_NODEPS)) {
+		_alpm_log(handle, ALPM_LOG_DEBUG, "sorting by dependencies\n");
+		if(trans->add) {
+			alpm_list_t *add_orig = trans->add;
+			trans->add = _alpm_sortbydeps(handle, add_orig, trans->remove, 0);
+			alpm_list_free(add_orig);
+		}
+		if(trans->remove) {
+			alpm_list_t *rem_orig = trans->remove;
+			trans->remove = _alpm_sortbydeps(handle, rem_orig, NULL, 1);
+			alpm_list_free(rem_orig);
+		}
+	}
+
 	trans->state = STATE_PREPARED;
 
 	return 0;
@@ -159,18 +175,42 @@ int SYMEXPORT alpm_trans_commit(alpm_handle_t *handle, alpm_list_t **data)
 		return 0;
 	}
 
+	if(trans->add) {
+		if(_alpm_sync_load(handle, data) != 0) {
+			/* pm_errno is set by _alpm_sync_load() */
+			return -1;
+		}
+		if(trans->flags & ALPM_TRANS_FLAG_DOWNLOADONLY) {
+			return 0;
+		}
+	}
+
 	trans->state = STATE_COMMITING;
+
+	alpm_logaction(handle, ALPM_CALLER_PREFIX, "transaction started\n");
 
 	if(trans->add == NULL) {
 		if(_alpm_remove_packages(handle, 1) == -1) {
 			/* pm_errno is set by _alpm_remove_packages() */
+			alpm_errno_t save = handle->pm_errno;
+			alpm_logaction(handle, ALPM_CALLER_PREFIX, "transaction failed\n");
+			handle->pm_errno = save;
 			return -1;
 		}
 	} else {
 		if(_alpm_sync_commit(handle, data) == -1) {
 			/* pm_errno is set by _alpm_sync_commit() */
+			alpm_errno_t save = handle->pm_errno;
+			alpm_logaction(handle, ALPM_CALLER_PREFIX, "transaction failed\n");
+			handle->pm_errno = save;
 			return -1;
 		}
+	}
+
+	if(trans->state == STATE_INTERRUPTED) {
+		alpm_logaction(handle, ALPM_CALLER_PREFIX, "transaction interrupted\n");
+	} else {
+		alpm_logaction(handle, ALPM_CALLER_PREFIX, "transaction completed\n");
 	}
 
 	trans->state = STATE_COMMITED;
@@ -215,12 +255,7 @@ int SYMEXPORT alpm_trans_release(alpm_handle_t *handle)
 
 	/* unlock db */
 	if(!nolock_flag) {
-		if(_alpm_handle_unlock(handle)) {
-			_alpm_log(handle, ALPM_LOG_WARNING, _("could not remove lock file %s\n"),
-					handle->lockfile);
-			alpm_logaction(handle, ALPM_CALLER_PREFIX,
-				"warning: could not remove lock file %s\n", handle->lockfile);
-		}
+		_alpm_handle_unlock(handle);
 	}
 
 	return 0;
@@ -259,7 +294,7 @@ static int grep(const char *fn, const char *needle)
 	}
 	while(!feof(fp)) {
 		char line[1024];
-		if(fgets(line, sizeof(line), fp) == NULL) {
+		if(safe_fgets(line, sizeof(line), fp) == NULL) {
 			continue;
 		}
 		/* TODO: this will not work if the search string
@@ -289,7 +324,7 @@ int _alpm_runscriptlet(alpm_handle_t *handle, const char *filepath,
 
 	if(!is_archive && !grep(filepath, script)) {
 		/* script not found in scriptlet file; we can only short-circuit this early
-		 * if it is an actual scriptlet file and not an archive.  */
+		 * if it is an actual scriptlet file and not an archive. */
 		return 0;
 	}
 
@@ -389,4 +424,4 @@ alpm_list_t SYMEXPORT *alpm_trans_get_remove(alpm_handle_t *handle)
 
 	return handle->trans->remove;
 }
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

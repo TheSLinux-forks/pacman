@@ -4,7 +4,7 @@
 /*
  * libarchive-compat.h
  *
- *  Copyright (c) 2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2013-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -70,4 +70,4 @@ static inline int _alpm_archive_read_support_filter_all(struct archive *archive)
 
 #endif /* _LIBARCHIVE_COMPAT_H */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

@@ -31,9 +31,13 @@ if ! type gettext &>/dev/null; then
 fi
 
 usage() {
-	printf '%s - List all packages installed from a given repo\n' "$myname"
-	printf 'Usage:   %s <repo>\n' "$myname"
-	printf 'Example: %s testing\n' "$myname"
+	printf "%s (pacman) v%s\n" "${myname}" "${myver}"
+	echo
+	printf "List all packages installed from a given repository\n" "${myname}"
+	echo
+	printf "Usage: %s <repository>\n" "${myname}"
+	echo
+	printf "Example: %s testing\n" "${myname}"
 }
 
 version() {
@@ -61,4 +65,4 @@ pacman -Sl $1 | awk -v i="$installed" '$NF == i { print $2,$3 }'
 # exit with pacman's return value, not awk's
 exit ${PIPESTATUS[0]}
 
-# vim: set ts=2 sw=2 noet:
+# vim: set noet:

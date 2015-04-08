@@ -1,7 +1,7 @@
 /*
  *  add.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -57,6 +57,8 @@ int SYMEXPORT alpm_add_pkg(alpm_handle_t *handle, alpm_pkg_t *pkg)
 	/* Sanity checks */
 	CHECK_HANDLE(handle, return -1);
 	ASSERT(pkg != NULL, RET_ERR(handle, ALPM_ERR_WRONG_ARGS, -1));
+	ASSERT(pkg->origin != ALPM_PKG_FROM_LOCALDB,
+			RET_ERR(handle, ALPM_ERR_WRONG_ARGS, -1));
 	ASSERT(handle == pkg->handle, RET_ERR(handle, ALPM_ERR_WRONG_ARGS, -1));
 	trans = handle->trans;
 	ASSERT(trans != NULL, RET_ERR(handle, ALPM_ERR_TRANS_NULL, -1));
@@ -178,17 +180,20 @@ static int extract_single_file(alpm_handle_t *handle, struct archive *archive,
 		archive_read_data_skip(archive);
 		return 0;
 	} else {
+		if (!alpm_filelist_contains(&newpkg->files, entryname)) {
+			_alpm_log(handle, ALPM_LOG_WARNING, _("file not found in file list for package %s. skipping extraction of %s\n"),
+					newpkg->name, entryname);
+			return 0;
+		}
 		/* build the new entryname relative to handle->root */
 		snprintf(filename, PATH_MAX, "%s%s", handle->root, entryname);
 	}
 
 	/* if a file is in NoExtract then we never extract it */
-	if(alpm_list_find(handle->noextract, entryname, _alpm_fnmatch)) {
+	if(_alpm_fnmatch_patterns(handle->noextract, entryname) == 0) {
 		_alpm_log(handle, ALPM_LOG_DEBUG, "%s is in NoExtract,"
 				" skipping extraction of %s\n",
 				entryname, filename);
-		alpm_logaction(handle, ALPM_CALLER_PREFIX,
-				"note: %s is in NoExtract, skipping extraction\n", entryname);
 		archive_read_data_skip(archive);
 		return 0;
 	}
@@ -197,75 +202,77 @@ static int extract_single_file(alpm_handle_t *handle, struct archive *archive,
 	 * to get 'right'. Here are the possibilities, with the filesystem
 	 * on the left and the package on the top:
 	 * (F=file, N=node, S=symlink, D=dir)
-	 *               |  F/N  |  S  |  D
-	 *  non-existent |   1   |  2  |  3
-	 *  F/N          |   4   |  5  |  6
-	 *  S            |   7   |  8  |  9
-	 *  D            |   10  |  11 |  12
+	 *               |  F/N  |   D
+	 *  non-existent |   1   |   2
+	 *  F/N          |   3   |   4
+	 *  D            |   5   |   6
 	 *
-	 *  1,2,3- extract, no magic necessary. lstat (_alpm_lstat) will fail here.
-	 *  4,5,6,7,8- conflict checks should have caught this. either overwrite
+	 *  1,2- extract, no magic necessary. lstat (llstat) will fail here.
+	 *  3,4- conflict checks should have caught this. either overwrite
 	 *      or backup the file.
-	 *  9- follow the symlink, hopefully it is a directory, check it.
-	 *  10- file replacing directory- don't allow it.
-	 *  11- don't extract symlink- a dir exists here. we don't want links to
-	 *      links, etc.
-	 *  12- skip extraction, dir already exists.
+	 *  5- file replacing directory- don't allow it.
+	 *  6- skip extraction, dir already exists.
 	 */
 
-	/* do both a lstat and a stat, so we can see what symlinks point to */
-	struct stat lsbuf, sbuf;
-	if(_alpm_lstat(filename, &lsbuf) != 0 || stat(filename, &sbuf) != 0) {
-		/* cases 1,2,3: couldn't stat an existing file, skip all backup checks */
+	struct stat lsbuf;
+	if(llstat(filename, &lsbuf) != 0) {
+		/* cases 1,2: file doesn't exist, skip all backup checks */
 	} else {
 		if(S_ISDIR(lsbuf.st_mode)) {
 			if(S_ISDIR(entrymode)) {
-				/* case 12: existing dir, ignore it */
+#if 0
+				uid_t entryuid = archive_entry_uid(entry);
+				gid_t entrygid = archive_entry_gid(entry);
+#endif
+
+				/* case 6: existing dir, ignore it */
 				if(lsbuf.st_mode != entrymode) {
 					/* if filesystem perms are different than pkg perms, warn user */
 					mode_t mask = 07777;
 					_alpm_log(handle, ALPM_LOG_WARNING, _("directory permissions differ on %s\n"
-								"filesystem: %o  package: %o\n"), filename, lsbuf.st_mode & mask,
+							"filesystem: %o  package: %o\n"), filename, lsbuf.st_mode & mask,
 							entrymode & mask);
 					alpm_logaction(handle, ALPM_CALLER_PREFIX,
 							"warning: directory permissions differ on %s\n"
 							"filesystem: %o  package: %o\n", filename, lsbuf.st_mode & mask,
 							entrymode & mask);
 				}
+
+#if 0
+				/* Disable this warning until our user management in packages has improved.
+				   Currently many packages have to create users in post_install and chown the
+				   directories. These all resulted in "false-positive" warnings. */
+
+				if((entryuid != lsbuf.st_uid) || (entrygid != lsbuf.st_gid)) {
+					_alpm_log(handle, ALPM_LOG_WARNING, _("directory ownership differs on %s\n"
+							"filesystem: %u:%u  package: %u:%u\n"), filename,
+							lsbuf.st_uid, lsbuf.st_gid, entryuid, entrygid);
+					alpm_logaction(handle, ALPM_CALLER_PREFIX,
+							"warning: directory ownership differs on %s\n"
+							"filesystem: %u:%u  package: %u:%u\n", filename,
+							lsbuf.st_uid, lsbuf.st_gid, entryuid, entrygid);
+				}
+#endif
+
 				_alpm_log(handle, ALPM_LOG_DEBUG, "extract: skipping dir extraction of %s\n",
 						filename);
 				archive_read_data_skip(archive);
 				return 0;
 			} else {
-				/* case 10/11: trying to overwrite dir with file/symlink, don't allow it */
+				/* case 5: trying to overwrite dir with file, don't allow it */
 				_alpm_log(handle, ALPM_LOG_ERROR, _("extract: not overwriting dir with file %s\n"),
 						filename);
 				archive_read_data_skip(archive);
 				return 1;
 			}
-		} else if(S_ISLNK(lsbuf.st_mode) && S_ISDIR(entrymode)) {
-			/* case 9: existing symlink, dir in package */
-			if(S_ISDIR(sbuf.st_mode)) {
-				/* the symlink on FS is to a directory, so we'll use it */
-				_alpm_log(handle, ALPM_LOG_DEBUG, "extract: skipping symlink overwrite of %s\n",
-						filename);
-				archive_read_data_skip(archive);
-				return 0;
-			} else {
-				/* this is BAD. symlink was not to a directory */
-				_alpm_log(handle, ALPM_LOG_ERROR, _("extract: symlink %s does not point to dir\n"),
-						filename);
-				archive_read_data_skip(archive);
-				return 1;
-			}
-		} else if(S_ISREG(lsbuf.st_mode) && S_ISDIR(entrymode)) {
-			/* case 6: trying to overwrite file with dir */
+		} else if(S_ISDIR(entrymode)) {
+			/* case 4: trying to overwrite file with dir */
 			_alpm_log(handle, ALPM_LOG_DEBUG, "extract: overwriting file with dir %s\n",
 					filename);
-		} else if(S_ISREG(entrymode)) {
-			/* case 4,7: */
+		} else {
+			/* case 3: */
 			/* if file is in NoUpgrade, don't touch it */
-			if(alpm_list_find(handle->noupgrade, entryname, _alpm_fnmatch)) {
+			if(_alpm_fnmatch_patterns(handle->noupgrade, entryname) == 0) {
 				notouch = 1;
 			} else {
 				alpm_backup_t *backup;
@@ -273,8 +280,6 @@ static int extract_single_file(alpm_handle_t *handle, struct archive *archive,
 				/* check newpkg first, so that adding backup files is retroactive */
 				backup = _alpm_needbackup(entryname, newpkg);
 				if(backup) {
-					/* if we force hash_orig to be non-NULL retroactive backup works */
-					hash_orig = "";
 					needbackup = 1;
 				}
 
@@ -288,8 +293,6 @@ static int extract_single_file(alpm_handle_t *handle, struct archive *archive,
 				}
 			}
 		}
-		/* else if(S_ISLNK(entrymode)) */
-		/* case 5,8: don't need to do anything special */
 	}
 
 	/* we need access to the original entryname later after calls to
@@ -314,7 +317,7 @@ static int extract_single_file(alpm_handle_t *handle, struct archive *archive,
 		hash_local = alpm_compute_md5sum(filename);
 		hash_pkg = alpm_compute_md5sum(checkfile);
 
-		/* update the md5 hash in newpkg's backup (it will be the new orginal) */
+		/* update the md5 hash in newpkg's backup (it will be the new original) */
 		alpm_list_t *i;
 		for(i = alpm_pkg_get_backup(newpkg); i; i = i->next) {
 			alpm_backup_t *backup = i->data;
@@ -322,7 +325,7 @@ static int extract_single_file(alpm_handle_t *handle, struct archive *archive,
 			if(!backup->name || strcmp(backup->name, entryname_orig) != 0) {
 				continue;
 			}
-			STRDUP(newhash, hash_pkg, RET_ERR(handle, ALPM_ERR_MEMORY, -1));
+			STRDUP(newhash, hash_pkg, errors++; handle->pm_errno = ALPM_ERR_MEMORY; goto needbackup_cleanup);
 			FREE(backup->hash);
 			backup->hash = newhash;
 		}
@@ -332,81 +335,92 @@ static int extract_single_file(alpm_handle_t *handle, struct archive *archive,
 		_alpm_log(handle, ALPM_LOG_DEBUG, "new:      %s\n", hash_pkg);
 		_alpm_log(handle, ALPM_LOG_DEBUG, "original: %s\n", hash_orig);
 
-		if(!oldpkg) {
-			if(hash_local && hash_pkg && strcmp(hash_local, hash_pkg) != 0) {
-				/* looks like we have a local file that has a different hash as the
-				 * file in the package, move it to a .pacorig */
+		if(hash_local && hash_pkg && strcmp(hash_local, hash_pkg) == 0) {
+			/* local and new files are the same, updating anyway to get
+			 * correct timestamps */
+			_alpm_log(handle, ALPM_LOG_DEBUG, "action: installing new file: %s\n",
+					entryname_orig);
+			if(try_rename(handle, checkfile, filename)) {
+				errors++;
+			}
+		} else if(hash_orig && hash_pkg && strcmp(hash_orig, hash_pkg) == 0) {
+			/* original and new files are the same, leave the local version alone,
+			 * including any user changes */
+			_alpm_log(handle, ALPM_LOG_DEBUG,
+					"action: leaving existing file in place\n");
+			unlink(checkfile);
+		} else if(hash_orig && hash_local && strcmp(hash_orig, hash_local) == 0) {
+			/* installed file has NOT been changed by user,
+			 * update to the new version */
+			_alpm_log(handle, ALPM_LOG_DEBUG, "action: installing new file: %s\n",
+					entryname_orig);
+			if(try_rename(handle, checkfile, filename)) {
+				errors++;
+			}
+		} else {
+			/* none of the three files matched another, unpack the new file alongside
+			 * the local file */
+
+			if(oldpkg) {
 				char *newpath;
-				size_t newlen = strlen(filename) + 9;
+				size_t newlen = strlen(filename) + strlen(".pacnew") + 1;
+
+				_alpm_log(handle, ALPM_LOG_DEBUG,
+						"action: keeping current file and installing"
+						" new one with .pacnew ending\n");
+
+				MALLOC(newpath, newlen,
+						errors++; handle->pm_errno = ALPM_ERR_MEMORY; goto needbackup_cleanup);
+				snprintf(newpath, newlen, "%s.pacnew", filename);
+
+				if(try_rename(handle, checkfile, newpath)) {
+					errors++;
+				} else {
+					alpm_event_pacnew_created_t event = {
+						.type = ALPM_EVENT_PACNEW_CREATED,
+						.from_noupgrade = 0,
+						.oldpkg = oldpkg,
+						.newpkg = newpkg,
+						.file = filename
+					};
+					EVENT(handle, &event);
+					alpm_logaction(handle, ALPM_CALLER_PREFIX,
+							"warning: %s installed as %s\n", filename, newpath);
+				}
+
+				free(newpath);
+			} else {
+				char *newpath;
+				size_t newlen = strlen(filename) + strlen(".pacorig") + 1;
+
+				_alpm_log(handle, ALPM_LOG_DEBUG,
+						"action: saving existing file with a .pacorig ending"
+						" and installing a new one\n");
+
 				MALLOC(newpath, newlen,
 						errors++; handle->pm_errno = ALPM_ERR_MEMORY; goto needbackup_cleanup);
 				snprintf(newpath, newlen, "%s.pacorig", filename);
 
 				/* move the existing file to the "pacorig" */
 				if(try_rename(handle, filename, newpath)) {
-						errors++;
-					errors++;
+					errors++;   /* failed rename filename  -> filename.pacorig */
+					errors++;   /* failed rename checkfile -> filename */
 				} else {
 					/* rename the file we extracted to the real name */
 					if(try_rename(handle, checkfile, filename)) {
 						errors++;
 					} else {
-						_alpm_log(handle, ALPM_LOG_WARNING, _("%s saved as %s\n"), filename, newpath);
+						alpm_event_pacorig_created_t event = {
+							.type = ALPM_EVENT_PACORIG_CREATED,
+							.newpkg = newpkg,
+							.file = filename
+						};
+						EVENT(handle, &event);
 						alpm_logaction(handle, ALPM_CALLER_PREFIX,
 								"warning: %s saved as %s\n", filename, newpath);
 					}
 				}
-				free(newpath);
-			} else {
-				/* local file is identical to pkg one, so just remove pkg one */
-				unlink(checkfile);
-			}
-		} else if(hash_orig) {
-			/* the fun part */
 
-			if(hash_local && strcmp(hash_orig, hash_local) == 0) {
-				/* installed file has NOT been changed by user */
-				if(hash_pkg && strcmp(hash_orig, hash_pkg) != 0) {
-					_alpm_log(handle, ALPM_LOG_DEBUG, "action: installing new file: %s\n",
-							entryname_orig);
-
-					if(try_rename(handle, checkfile, filename)) {
-						errors++;
-					}
-				} else {
-					/* no sense in installing the same file twice, install
-					 * ONLY if the original and package hashes differ */
-					_alpm_log(handle, ALPM_LOG_DEBUG, "action: leaving existing file in place\n");
-					unlink(checkfile);
-				}
-			} else if(hash_pkg && strcmp(hash_orig, hash_pkg) == 0) {
-				/* originally installed file and new file are the same - this
-				 * implies the case above failed - i.e. the file was changed by a
-				 * user */
-				_alpm_log(handle, ALPM_LOG_DEBUG, "action: leaving existing file in place\n");
-				unlink(checkfile);
-			} else if(hash_local && hash_pkg && strcmp(hash_local, hash_pkg) == 0) {
-				/* this would be magical.  The above two cases failed, but the
-				 * user changes just so happened to make the new file exactly the
-				 * same as the one in the package... skip it */
-				_alpm_log(handle, ALPM_LOG_DEBUG, "action: leaving existing file in place\n");
-				unlink(checkfile);
-			} else {
-				char *newpath;
-				size_t newlen = strlen(filename) + 8;
-				_alpm_log(handle, ALPM_LOG_DEBUG, "action: keeping current file and installing"
-						" new one with .pacnew ending\n");
-				MALLOC(newpath, newlen,
-						errors++; handle->pm_errno = ALPM_ERR_MEMORY; goto needbackup_cleanup);
-				snprintf(newpath, newlen, "%s.pacnew", filename);
-				if(try_rename(handle, checkfile, newpath)) {
-					errors++;
-				} else {
-					_alpm_log(handle, ALPM_LOG_WARNING, _("%s installed as %s\n"),
-							filename, newpath);
-					alpm_logaction(handle, ALPM_CALLER_PREFIX,
-							"warning: %s installed as %s\n", filename, newpath);
-				}
 				free(newpath);
 			}
 		}
@@ -416,14 +430,14 @@ needbackup_cleanup:
 		free(hash_local);
 		free(hash_pkg);
 	} else {
+		size_t len;
 		/* we didn't need a backup */
 		if(notouch) {
 			/* change the path to a .pacnew extension */
 			_alpm_log(handle, ALPM_LOG_DEBUG, "%s is in NoUpgrade -- skipping\n", filename);
-			_alpm_log(handle, ALPM_LOG_WARNING, _("extracting %s as %s.pacnew\n"), filename, filename);
-			alpm_logaction(handle, ALPM_CALLER_PREFIX,
-					"warning: extracting %s as %s.pacnew\n", filename, filename);
-			strncat(filename, ".pacnew", PATH_MAX - strlen(filename));
+			/* remember len so we can get the old filename back for the event */
+			len = strlen(filename);
+			strncat(filename, ".pacnew", PATH_MAX - len);
 		} else {
 			_alpm_log(handle, ALPM_LOG_DEBUG, "extracting %s\n", filename);
 		}
@@ -440,6 +454,23 @@ needbackup_cleanup:
 			free(entryname_orig);
 			errors++;
 			return errors;
+		}
+
+		if(notouch) {
+			alpm_event_pacnew_created_t event = {
+				.type = ALPM_EVENT_PACNEW_CREATED,
+				.from_noupgrade = 1,
+				.oldpkg = oldpkg,
+				.newpkg = newpkg,
+				.file = filename
+			};
+			/* "remove" the .pacnew suffix */
+			filename[len] = '\0';
+			EVENT(handle, &event);
+			alpm_logaction(handle, ALPM_CALLER_PREFIX,
+					"warning: %s installed as %s.pacnew\n", filename, filename);
+			/* restore */
+			filename[len] = '.';
 		}
 
 		/* calculate an hash if this is in newpkg's backup */
@@ -468,8 +499,8 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 	alpm_pkg_t *oldpkg = NULL;
 	alpm_db_t *db = handle->db_local;
 	alpm_trans_t *trans = handle->trans;
-	alpm_progress_t event = ALPM_PROGRESS_ADD_START;
-	alpm_event_t done = ALPM_EVENT_ADD_DONE, start = ALPM_EVENT_ADD_START;
+	alpm_progress_t progress = ALPM_PROGRESS_ADD_START;
+	alpm_event_package_operation_t event;
 	const char *log_msg = "adding";
 	const char *pkgfile;
 
@@ -481,19 +512,16 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 		int cmp = _alpm_pkg_compare_versions(newpkg, local);
 		if(cmp < 0) {
 			log_msg = "downgrading";
-			event = ALPM_PROGRESS_DOWNGRADE_START;
-			start = ALPM_EVENT_DOWNGRADE_START;
-			done = ALPM_EVENT_DOWNGRADE_DONE;
+			progress = ALPM_PROGRESS_DOWNGRADE_START;
+			event.operation = ALPM_PACKAGE_DOWNGRADE;
 		} else if(cmp == 0) {
 			log_msg = "reinstalling";
-			event = ALPM_PROGRESS_REINSTALL_START;
-			start = ALPM_EVENT_REINSTALL_START;
-			done = ALPM_EVENT_REINSTALL_DONE;
+			progress = ALPM_PROGRESS_REINSTALL_START;
+			event.operation = ALPM_PACKAGE_REINSTALL;
 		} else {
 			log_msg = "upgrading";
-			event = ALPM_PROGRESS_UPGRADE_START;
-			start = ALPM_EVENT_UPGRADE_START;
-			done = ALPM_EVENT_UPGRADE_DONE;
+			progress = ALPM_PROGRESS_UPGRADE_START;
+			event.operation = ALPM_PACKAGE_UPGRADE;
 		}
 		is_upgrade = 1;
 
@@ -505,9 +533,14 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 
 		/* copy over the install reason */
 		newpkg->reason = alpm_pkg_get_reason(local);
+	} else {
+		event.operation = ALPM_PACKAGE_INSTALL;
 	}
 
-	EVENT(handle, start, newpkg, local);
+	event.type = ALPM_EVENT_PACKAGE_OPERATION_START;
+	event.oldpkg = oldpkg;
+	event.newpkg = newpkg;
+	EVENT(handle, &event);
 
 	pkgfile = newpkg->origin_data.file;
 
@@ -539,7 +572,7 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 	}
 
 	/* prepare directory for database entries so permission are correct after
-	   changelog/install script installation (FS#12263) */
+	   changelog/install script installation */
 	if(_alpm_local_db_prepare(db, newpkg)) {
 		alpm_logaction(handle, ALPM_CALLER_PREFIX,
 				"error: could not create database entry %s-%s\n",
@@ -565,7 +598,7 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 		}
 
 		/* save the cwd so we can restore it later */
-		OPEN(cwdfd, ".", O_RDONLY);
+		OPEN(cwdfd, ".", O_RDONLY | O_CLOEXEC);
 		if(cwdfd < 0) {
 			_alpm_log(handle, ALPM_LOG_ERROR, _("could not get current working directory\n"));
 		}
@@ -575,13 +608,13 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 			_alpm_log(handle, ALPM_LOG_ERROR, _("could not change directory to %s (%s)\n"),
 					handle->root, strerror(errno));
 			_alpm_archive_read_free(archive);
-			CLOSE(fd);
+			close(fd);
 			ret = -1;
 			goto cleanup;
 		}
 
 		/* call PROGRESS once with 0 percent, as we sort-of skip that here */
-		PROGRESS(handle, event, newpkg->name, 0, pkg_count, pkg_current);
+		PROGRESS(handle, progress, newpkg->name, 0, pkg_count, pkg_current);
 
 		for(i = 0; archive_read_next_header(archive, &entry) == ARCHIVE_OK; i++) {
 			int percent;
@@ -599,13 +632,13 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 				percent = 0;
 			}
 
-			PROGRESS(handle, event, newpkg->name, percent, pkg_count, pkg_current);
+			PROGRESS(handle, progress, newpkg->name, percent, pkg_count, pkg_current);
 
 			/* extract the next file from the archive */
 			errors += extract_single_file(handle, archive, entry, newpkg, oldpkg);
 		}
 		_alpm_archive_read_free(archive);
-		CLOSE(fd);
+		close(fd);
 
 		/* restore the old cwd if we have it */
 		if(cwdfd >= 0) {
@@ -613,7 +646,7 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 				_alpm_log(handle, ALPM_LOG_ERROR,
 						_("could not restore working directory (%s)\n"), strerror(errno));
 			}
-			CLOSE(cwdfd);
+			close(cwdfd);
 		}
 
 		if(errors) {
@@ -656,9 +689,31 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 				newpkg->name);
 	}
 
-	PROGRESS(handle, event, newpkg->name, 100, pkg_count, pkg_current);
+	PROGRESS(handle, progress, newpkg->name, 100, pkg_count, pkg_current);
 
-	/* run the post-install script if it exists  */
+	switch(event.operation) {
+		case ALPM_PACKAGE_INSTALL:
+			alpm_logaction(handle, ALPM_CALLER_PREFIX, "installed %s (%s)\n",
+					newpkg->name, newpkg->version);
+			break;
+		case ALPM_PACKAGE_DOWNGRADE:
+			alpm_logaction(handle, ALPM_CALLER_PREFIX, "downgraded %s (%s -> %s)\n",
+					newpkg->name, oldpkg->version, newpkg->version);
+			break;
+		case ALPM_PACKAGE_REINSTALL:
+			alpm_logaction(handle, ALPM_CALLER_PREFIX, "reinstalled %s (%s)\n",
+					newpkg->name, newpkg->version);
+			break;
+		case ALPM_PACKAGE_UPGRADE:
+			alpm_logaction(handle, ALPM_CALLER_PREFIX, "upgraded %s (%s -> %s)\n",
+					newpkg->name, oldpkg->version, newpkg->version);
+			break;
+		default:
+			/* we should never reach here */
+			break;
+	}
+
+	/* run the post-install script if it exists */
 	if(alpm_pkg_has_scriptlet(newpkg)
 			&& !(trans->flags & ALPM_TRANS_FLAG_NOSCRIPTLET)) {
 		char *scriptlet = _alpm_local_db_pkgpath(db, newpkg, "install");
@@ -669,7 +724,8 @@ static int commit_single_pkg(alpm_handle_t *handle, alpm_pkg_t *newpkg,
 		free(scriptlet);
 	}
 
-	EVENT(handle, done, newpkg, oldpkg);
+	event.type = ALPM_EVENT_PACKAGE_OPERATION_DONE;
+	EVENT(handle, &event);
 
 cleanup:
 	_alpm_pkg_free(oldpkg);
@@ -718,4 +774,4 @@ int _alpm_upgrade_packages(alpm_handle_t *handle)
 	return ret;
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

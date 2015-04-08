@@ -1,63 +1,67 @@
 #!/bin/bash
 
-declare -i testcount=0 pass=0 fail=0
+declare -i testcount=0 pass=0 fail=0 total=25
 
 # source the library function
-if [[ -z $1 || ! -f $1 ]]; then
-  printf "error: path to parseopts library not provided or does not exist\n"
-  exit 1
+lib=${1:-${PMTEST_SCRIPTLIB_DIR}parseopts.sh}
+if [[ -z $lib || ! -f $lib ]]; then
+	printf "Bail out! parseopts library ($lib) could not be located\n"
+	exit 1
 fi
-. "$1"
+. "$lib"
 
-if ! type -t parseopts >/dev/null; then
-  printf 'parseopts function not found\n'
-  exit 1
+if ! type -t parseopts &>/dev/null; then
+	printf "Bail out! parseopts function not found\n"
+	exit 1
 fi
 
 # borrow opts from makepkg
 OPT_SHORT="AcdefFghiLmop:rRsV"
 OPT_LONG=('allsource' 'asroot' 'ignorearch' 'check' 'clean:' 'cleanall' 'nodeps'
           'noextract' 'force' 'forcever:' 'geninteg' 'help' 'holdver'
-          'install' 'key:' 'log' 'nocolor' 'nobuild' 'nocheck' 'nosign' 'pkg:' 'rmdeps'
+          'install' 'key:' 'log' 'nocolor' 'nobuild' 'nocheck' 'noprepare' 'nosign' 'pkg:' 'rmdeps'
           'repackage' 'skipinteg' 'sign' 'source' 'syncdeps' 'version' 'config:'
           'noconfirm' 'noprogressbar')
 
 parse() {
-  local result=$1 tokencount=$2; shift 2
+	local result=$1 tokencount=$2; shift 2
 
-  (( ++testcount ))
-  parseopts "$OPT_SHORT" "${OPT_LONG[@]}" -- "$@" 2>/dev/null
-  test_result "$result" "$tokencount" "$*" "${OPTRET[@]}"
-  unset OPTRET
+	(( ++testcount ))
+	parseopts "$OPT_SHORT" "${OPT_LONG[@]}" -- "$@" 2>/dev/null
+	test_result "$result" "$tokencount" "$*" "${OPTRET[@]}"
+	unset OPTRET
 }
 
 test_result() {
-  local result=$1 tokencount=$2 input=$3; shift 3
+	local result=$1 tokencount=$2 input=$3; shift 3
 
-  if [[ $result = "$*" ]] && (( tokencount == $# )); then
-    (( ++pass ))
-  else
-    printf '[TEST %3s]: FAIL\n' "$testcount"
-    printf '      input: %s\n' "$input"
-    printf '     output: %s (%s tokens)\n' "$*" "$#"
-    printf '   expected: %s (%s tokens)\n' "$result" "$tokencount"
-    echo
-    (( ++fail ))
-  fi
+	if [[ $result = "$*" ]] && (( tokencount == $# )); then
+		(( ++pass ))
+		printf 'ok %d - %s\n' "$testcount" "$input"
+	else
+		printf 'not ok %d - %s\n' "$testcount" "$input"
+		printf '# [TEST %3s]: FAIL\n' "$testcount"
+		printf '#      input: %s\n' "$input"
+		printf '#     output: %s (%s tokens)\n' "$*" "$#"
+		printf '#   expected: %s (%s tokens)\n' "$result" "$tokencount"
+		(( ++fail ))
+	fi
 }
 
 summarize() {
-  if (( !fail )); then
-    printf 'All %s tests successful\n\n' "$testcount"
-    exit 0
-  else
-    printf '%s of %s tests failed\n\n' "$fail" "$testcount"
-    exit 1
-  fi
+	if (( !fail )); then
+		printf '# All %s tests successful\n\n' "$testcount"
+		exit 0
+	else
+		printf '# %s of %s tests failed\n\n' "$fail" "$testcount"
+		exit 1
+	fi
 }
 trap 'summarize' EXIT
 
-printf 'Beginning parseopts tests\n'
+printf '# Beginning parseopts tests\n'
+
+echo "1..$total"
 
 # usage: parse <expected result> <token count> test-params...
 # a failed parse will match only the end of options marker '--'
@@ -83,7 +87,7 @@ parse '-p PKGBUILD --' 3 -pPKGBUILD
 # valid shortopts as a long opt
 parse '--' 1 --sir
 
-# long opt wiht no optarg
+# long opt with no optarg
 parse '--log --' 2 --log
 
 # long opt with missing optarg

@@ -1,7 +1,5 @@
-#! /usr/bin/python2
-#
 #  Copyright (c) 2006 by Aurelien Foret <orelien@chez.com>
-#  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+#  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -23,6 +21,7 @@ from StringIO import StringIO
 import tarfile
 
 import pmpkg
+import tap
 import util
 
 def _getsection(fd):
@@ -70,7 +69,7 @@ class pmdb(object):
         return "%s" % self.treename
 
     def getverify(self):
-        for value in ("Always", "Never", "Optional"):
+        for value in ("Required", "Never", "Optional"):
             if value in self.treename:
                 return value
         return "Never"
@@ -88,6 +87,8 @@ class pmdb(object):
         if self.read_dircache is None:
             self.read_dircache = os.listdir(self.dbdir)
         for entry in self.read_dircache:
+            if entry == "ALPM_DB_VERSION":
+                continue
             [pkgname, pkgver, pkgrel] = entry.rsplit("-", 2)
             if pkgname == name:
                 dbentry = entry
@@ -105,7 +106,7 @@ class pmdb(object):
         # desc
         filename = os.path.join(path, "desc")
         if not os.path.isfile(filename):
-            print "invalid db entry found (desc missing) for pkg", pkgname
+            tap.bail("invalid db entry found (desc missing) for pkg " + pkgname)
             return None
         fd = open(filename, "r")
         while 1:
@@ -160,7 +161,7 @@ class pmdb(object):
         # files
         filename = os.path.join(path, "files")
         if not os.path.isfile(filename):
-            print "invalid db entry found (files missing) for pkg", pkgname
+            tap.bail("invalid db entry found (files missing) for pkg " + pkgname)
             return None
         fd = open(filename, "r")
         while 1:
@@ -171,7 +172,7 @@ class pmdb(object):
             if line == "%FILES%":
                 while line:
                     line = fd.readline().strip("\n")
-                    if line and line[-1] != "/":
+                    if line:
                         pkg.files.append(line)
             if line == "%BACKUP%":
                 pkg.backup = _getsection(fd)
@@ -235,7 +236,7 @@ class pmdb(object):
             for pkg, entry in pkg_entries:
                 path = os.path.join(self.dbdir, pkg.fullname())
                 util.mkdir(path)
-                for name, data in entry.iteritems():
+                for name, data in entry.items():
                     util.mkfile(path, name, data)
 
         if self.dbfile:
@@ -246,7 +247,7 @@ class pmdb(object):
                 info = tarfile.TarInfo(pkg.fullname())
                 info.type = tarfile.DIRTYPE
                 tar.addfile(info)
-                for name, data in entry.iteritems():
+                for name, data in entry.items():
                     filename = os.path.join(pkg.fullname(), name)
                     info = tarfile.TarInfo(filename)
                     info.size = len(data)

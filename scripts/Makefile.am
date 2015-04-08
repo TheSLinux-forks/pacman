@@ -1,10 +1,13 @@
 # enforce that all scripts have a --help and --version option
 AUTOMAKE_OPTIONS = std-options
+AM_INSTALLCHECK_STD_OPTIONS_EXEMPT = makepkg-wrapper
 
 SUBDIRS = po
 
 bin_SCRIPTS = \
 	$(OURSCRIPTS) \
+	makepkg-template \
+	makepkg-wrapper \
 	repo-remove \
 	repo-elephant
 
@@ -18,6 +21,8 @@ OURSCRIPTS = \
 
 EXTRA_DIST = \
 	makepkg.sh.in \
+	makepkg-template.pl.in \
+	makepkg-wrapper.sh.in \
 	pacman-db-upgrade.sh.in \
 	pacman-key.sh.in \
 	pacman-optimize.sh.in \
@@ -35,6 +40,11 @@ LIBRARY = \
 # Files that should be removed, but which Automake does not know.
 MOSTLYCLEANFILES = $(bin_SCRIPTS)
 
+libmakepkgdir = $(libdir)/makepkg
+
+clean-local:
+	$(AM_V_at)$(RM) -r .lib
+
 if USE_GIT_VERSION
 GIT_VERSION := $(shell sh -c 'git describe --abbrev=4 --dirty | sed s/^v//')
 REAL_PACKAGE_VERSION = $(GIT_VERSION)
@@ -44,9 +54,11 @@ endif
 
 #### Taken from the autoconf scripts Makefile.am ####
 edit = sed \
+	-e 's|@rootdir[@]|$(ROOTDIR)|g' \
 	-e 's|@localedir[@]|$(localedir)|g' \
 	-e 's|@sysconfdir[@]|$(sysconfdir)|g' \
 	-e 's|@localstatedir[@]|$(localstatedir)|g' \
+	-e 's|@libmakepkgdir[@]|$(libmakepkgdir)|g' \
 	-e 's|@pkgdatadir[@]|$(pkgdatadir)|g' \
 	-e 's|@prefix[@]|$(prefix)|g' \
 	-e '1s|!/bin/bash|!$(BASH_SHELL)|g' \
@@ -54,8 +66,11 @@ edit = sed \
 	-e 's|@PACKAGE_BUGREPORT[@]|$(PACKAGE_BUGREPORT)|g' \
 	-e 's|@PACKAGE_NAME[@]|$(PACKAGE_NAME)|g' \
 	-e 's|@BUILDSCRIPT[@]|$(BUILDSCRIPT)|g' \
+	-e 's|@TEMPLATE_DIR[@]|$(TEMPLATE_DIR)|g' \
 	-e 's|@DEBUGSUFFIX[@]|$(DEBUGSUFFIX)|g' \
 	-e "s|@INODECMD[@]|$(INODECMD)|g" \
+	-e "s|@OWNERCMD[@]|$(OWNERCMD)|g" \
+	-e "s|@MODECMD[@]|$(MODECMD)|g" \
 	-e 's|@SIZECMD[@]|$(SIZECMD)|g' \
 	-e 's|@SEDINPLACE[@]|$(SEDINPLACE)|g' \
 	-e 's|@DUFLAGS[@]|$(DUFLAGS)|g' \
@@ -74,7 +89,16 @@ $(OURSCRIPTS): Makefile
 
 makepkg: \
 	$(srcdir)/makepkg.sh.in \
+	$(srcdir)/makepkg-wrapper.sh.in \
 	$(srcdir)/library/parseopts.sh
+
+makepkg-template: \
+	$(srcdir)/makepkg-template.pl.in \
+	Makefile
+
+	$(AM_V_at)$(RM) -f makepkg-template
+	$(AM_V_GEN)$(edit) $< > $@
+	$(AM_V_at)chmod +x,a-w $@
 
 pacman-db-upgrade: \
 	$(srcdir)/pacman-db-upgrade.sh.in \
@@ -106,7 +130,26 @@ repo-elephant: $(srcdir)/repo-add.sh.in
 	$(AM_V_at)$(RM) repo-elephant
 	$(AM_V_at)$(LN_S) repo-add repo-elephant
 
-install-data-hook:
+makepkg-wrapper: \
+	Makefile \
+	$(srcdir)/makepkg-wrapper.sh.in \
+	$(srcdir)/makepkg.sh.in \
+	$(srcdir)/library/parseopts.sh \
+	| makepkg
+	$(AM_V_at)$(MKDIR_P) .lib
+	$(AM_V_at)mv -f makepkg .lib
+	$(AM_V_at)$(RM) $@
+	$(AM_V_GEN)sed \
+		-e "s|@PWD[@]|$$(pwd)|" \
+		-e '1s|!/bin/bash|!$(BASH_SHELL)|g' \
+		$(srcdir)/$@.sh.in > $@
+	$(AM_V_at)chmod +x,a-w $@
+	$(AM_V_at)$(LN_S) makepkg-wrapper makepkg
+
+install-exec-hook:
+	cd $(DESTDIR)$(bindir) && \
+		$(RM) makepkg makepkg-wrapper
+	$(INSTALL) .lib/makepkg $(DESTDIR)$(bindir)/makepkg
 	cd $(DESTDIR)$(bindir) && \
 		$(RM) repo-elephant && \
 		( $(LN_S) repo-add repo-elephant || \
@@ -122,4 +165,4 @@ uninstall-hook:
 	cd $(DESTDIR)$(bindir) && \
 		$(RM) repo-remove repo-elephant
 
-# vim:set ts=2 sw=2 noet:
+# vim:set noet:

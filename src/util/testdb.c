@@ -1,6 +1,7 @@
 /*
  *  testdb.c : Test a pacman local database for validity
  *
+ *  Copyright (c) 2007-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2007 by Aaron Griffin <aaronmgriffin@gmail.com>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -26,8 +27,6 @@
 
 #include <alpm.h>
 #include <alpm_list.h>
-
-#define BASENAME "testdb"
 
 alpm_handle_t *handle = NULL;
 
@@ -70,7 +69,7 @@ static int check_localdb_files(void)
 
 	while((ent = readdir(dir)) != NULL) {
 		if(strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0
-				|| ent->d_name[0] == '.') {
+				|| strcmp(ent->d_name, "ALPM_DB_VERSION") == 0) {
 			continue;
 		}
 		/* check for known db files in local database */
@@ -244,11 +243,11 @@ cleanup:
 
 static void usage(void)
 {
-	fprintf(stderr, "usage:\n");
-	fprintf(stderr,
-			"\t%s [-b <pacman db>]                : check the local database\n", BASENAME);
-	fprintf(stderr,
-			"\t%s [-b <pacman db>] core extra ... : check the listed sync databases\n", BASENAME);
+	fprintf(stderr, "testdb (pacman) v" PACKAGE_VERSION "\n\n"
+			"Test a pacman local database for validity.\n\n"
+			"Usage: testdb [options]\n\n"
+			"  -b <pacman db>                : check the local database\n"
+			"  -b <pacman db> core extra ... : check the listed sync databases\n");
 	exit(1);
 }
 
@@ -295,4 +294,4 @@ int main(int argc, char *argv[])
 	cleanup(errors > 0);
 }
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

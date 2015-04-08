@@ -1,7 +1,7 @@
 /*
  *  util-common.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -48,7 +49,7 @@ char *mdirname(const char *path)
 	char *ret, *last;
 
 	/* null or empty path */
-	if(path == NULL || path == '\0') {
+	if(path == NULL || *path == '\0') {
 		return strdup(".");
 	}
 
@@ -73,6 +74,59 @@ char *mdirname(const char *path)
 	return strdup(".");
 }
 
+/** lstat wrapper that treats /path/dirsymlink/ the same as /path/dirsymlink.
+ * Linux lstat follows POSIX semantics and still performs a dereference on
+ * the first, and for uses of lstat in libalpm this is not what we want.
+ * @param path path to file to lstat
+ * @param buf structure to fill with stat information
+ * @return the return code from lstat
+ */
+int llstat(char *path, struct stat *buf)
+{
+	int ret;
+	char *c = NULL;
+	size_t len = strlen(path);
+
+	while(len > 1 && path[len - 1] == '/') {
+		--len;
+		c = path + len;
+	}
+
+	if(c) {
+		*c = '\0';
+		ret = lstat(path, buf);
+		*c = '/';
+	} else {
+		ret = lstat(path, buf);
+	}
+
+	return ret;
+}
+
+/** Wrapper around fgets() which properly handles EINTR
+ * @param s string to read into
+ * @param size maximum length to read
+ * @param stream stream to read from
+ * @return value returned by fgets()
+ */
+char *safe_fgets(char *s, int size, FILE *stream)
+{
+	char *ret;
+	int errno_save = errno, ferror_save = ferror(stream);
+	while((ret = fgets(s, size, stream)) == NULL && !feof(stream)) {
+		if(errno == EINTR) {
+			/* clear any errors we set and try again */
+			errno = errno_save;
+			if(!ferror_save) {
+				clearerr(stream);
+			}
+		} else {
+			break;
+		}
+	}
+	return ret;
+}
+
 #ifndef HAVE_STRNDUP
 /* A quick and dirty implementation derived from glibc */
 /** Determines the length of a fixed-size string.
@@ -82,9 +136,9 @@ char *mdirname(const char *path)
  */
 static size_t strnlen(const char *s, size_t max)
 {
-    register const char *p;
-    for(p = s; *p && max--; ++p);
-    return (p - s);
+	register const char *p;
+	for(p = s; *p && max--; ++p);
+	return (p - s);
 }
 
 /** Copies a string.
@@ -95,15 +149,16 @@ static size_t strnlen(const char *s, size_t max)
  */
 char *strndup(const char *s, size_t n)
 {
-  size_t len = strnlen(s, n);
-  char *new = (char *) malloc(len + 1);
+	size_t len = strnlen(s, n);
+	char *new = (char *) malloc(len + 1);
 
-  if(new == NULL)
-    return NULL;
+	if(new == NULL) {
+		return NULL;
+	}
 
-  new[len] = '\0';
-  return (char *)memcpy(new, s, len);
+	new[len] = '\0';
+	return (char *)memcpy(new, s, len);
 }
 #endif
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */

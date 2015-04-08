@@ -1,7 +1,7 @@
 /*
  *  alpm_list.c
  *
- *  Copyright (c) 2006-2013 Pacman Development Team <pacman-dev@archlinux.org>
+ *  Copyright (c) 2006-2014 Pacman Development Team <pacman-dev@archlinux.org>
  *  Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,10 @@
 
 #include <stdlib.h>
 #include <string.h>
+
+/* Note: alpm_list.{c,h} are intended to be standalone files. Do not include
+ * any other libalpm headers.
+ */
 
 /* libalpm */
 #include "alpm_list.h"
@@ -66,11 +70,13 @@ void SYMEXPORT alpm_list_free_inner(alpm_list_t *list, alpm_list_fn_free fn)
 {
 	alpm_list_t *it = list;
 
-	while(it) {
-		if(fn && it->data) {
-			fn(it->data);
+	if(fn) {
+		while(it) {
+			if(it->data) {
+				fn(it->data);
+			}
+			it = it->next;
 		}
-		it = it->next;
 	}
 }
 
@@ -784,4 +790,4 @@ void SYMEXPORT *alpm_list_to_array(const alpm_list_t *list, size_t n,
 
 /** @} */
 
-/* vim: set ts=2 sw=2 noet: */
+/* vim: set noet: */
